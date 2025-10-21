@@ -17,7 +17,20 @@ module Configuration =
       Symbol = "518880" // GLD ETF symbol
       StartDate = "20000101" // Start from year 2000
       TrainRatio = 0.8 // 80% training, 20% testing
-      RiskFreeRate = 0.0 } // Risk-free rate for Sharpe ratio calculation
+      RiskFreeRate = 0.0 // Risk-free rate for Sharpe ratio calculation
+      DataProvider = ETFProvider }
+
+  /// <summary>
+  /// Gets the configuration for Shanghai Gold Exchange data.
+  /// </summary>
+  /// <returns>A GoldMachineConfig configured for SGE data.</returns>
+  let getSGEConfig () =
+    { ApiBaseUrl = "http://127.0.0.1:8080/api/public"
+      Symbol = "Au99.99" // SGE gold symbol
+      StartDate = "20000101" // Start from year 2000
+      TrainRatio = 0.8 // 80% training, 20% testing
+      RiskFreeRate = 0.0 // Risk-free rate for Sharpe ratio calculation
+      DataProvider = SGEProvider }
 
   /// <summary>
   /// Validates the configuration parameters.

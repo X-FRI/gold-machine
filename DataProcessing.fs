@@ -1,5 +1,6 @@
 namespace GoldMachine
 
+open System
 open MathNet.Numerics.Statistics
 
 /// <summary>
@@ -56,6 +57,34 @@ module DataProcessing =
       let stdDev = Statistics.StandardDeviation (returns)
 
       if stdDev = 0.0 then 0.0 else (meanReturn - riskFreeRate) / stdDev
+
+  /// <summary>
+  /// Converts raw data source to standardized GoldDataRecord array.
+  /// Handles different data formats from various providers.
+  /// </summary>
+  /// <param name="rawData">Raw data from any supported data source.</param>
+  /// <returns>Array of standardized gold data records.</returns>
+  let convertRawDataToRecords (rawData : RawDataSource) =
+    match rawData with
+    | ETF rawETFData ->
+      rawETFData
+      |> Array.filter (fun item ->
+        not (String.IsNullOrWhiteSpace item.Date) && item.Close > 0.0)
+      |> Array.map (fun item ->
+        { Date = DateTime.Parse item.Date
+          Close = item.Close
+          MA3 = 0.0f // Will be calculated later
+          MA9 = 0.0f }) // Will be calculated later
+      |> Array.sortBy (fun r -> r.Date)
+    | SGE rawSGEData ->
+      rawSGEData
+      |> Array.filter (fun item -> item.Close > 0.0)
+      |> Array.map (fun item ->
+        { Date = item.Date
+          Close = item.Close // Use close price for consistency
+          MA3 = 0.0f // Will be calculated later
+          MA9 = 0.0f }) // Will be calculated later
+      |> Array.sortBy (fun r -> r.Date)
 
   /// <summary>
   /// Processes raw gold data records by calculating moving averages.

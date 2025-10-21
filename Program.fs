@@ -58,10 +58,14 @@ module Program =
         | Error err -> return Error err
         | Ok validatedConfig ->
 
-          // Acquire data from API
-          logInfo "Acquiring gold price data from API..."
+          // Acquire data from configured provider
+          let provider =
+            DataProviders.DataProviderFactory.getProviderFromConfig
+              validatedConfig
 
-          match! DataAcquisition.acquireGoldData validatedConfig with
+          logInfo $"Acquiring gold price data from {provider.Name}..."
+
+          match! DataAcquisition.acquireGoldData provider validatedConfig with
           | Error err -> return Error err
           | Ok rawRecords ->
 
@@ -203,21 +207,39 @@ module Program =
     }
 
   /// <summary>
+  /// Creates configuration based on command line arguments.
+  /// </summary>
+  /// <param name="argv">Command line arguments.</param>
+  /// <returns>GoldMachineConfig for the specified data provider.</returns>
+  let createConfigFromArgs (argv : string[]) =
+    if argv.Length > 0 && argv.[0].ToLower () = "sge" then
+      logInfo "Using Shanghai Gold Exchange data provider"
+      Configuration.getSGEConfig ()
+    else
+      logInfo "Using default ETF data provider"
+      Configuration.getDefaultConfig ()
+
+  /// <summary>
   /// Main entry point for the Gold Price Prediction System.
   /// </summary>
-  /// <param name="argv">Command line arguments (currently unused).</param>
+  /// <param name="argv">Command line arguments. Pass "sge" to use Shanghai Gold Exchange data.</param>
   /// <returns>Exit code (0 for success, 1 for failure).</returns>
   [<EntryPoint>]
   let main argv =
+    printfn "Gold Price Prediction System v2.0"
     printfn "==================================="
+    printfn "Usage: dotnet run [sge]"
+    printfn "  (no args) - Use ETF data (default)"
+    printfn "  sge       - Use Shanghai Gold Exchange data"
+    printfn ""
 
-    let config = Configuration.getDefaultConfig ()
+    let config = createConfigFromArgs argv
 
     match Async.RunSynchronously (runPredictionWorkflow config) with
     | Ok _ ->
-      printfn "Program completed successfully."
+      printfn "Done."
       0
     | Error err ->
       handleError err
-      printfn "Program failed. Check logs above for details."
+      printfn "Failed!"
       1

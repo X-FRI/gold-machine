@@ -1,99 +1,25 @@
 namespace GoldMachine
 
-open System
-open System.Net.Http
-open System.Threading.Tasks
-open System.Text.Json
-open Newtonsoft.Json
-
 /// <summary>
-/// Data acquisition module for fetching gold ETF price data from external APIs.
-/// Provides functionality to retrieve historical price data and convert it to structured records.
+/// Data acquisition module for fetching gold price data from multiple external APIs.
+/// Provides unified interface for different data sources through the provider pattern.
 /// </summary>
 module DataAcquisition =
 
   /// <summary>
-  /// Fetches raw JSON data from the specified API endpoint.
+  /// Acquires data from the specified data provider.
+  /// This is the main entry point for data acquisition using the provider pattern.
   /// </summary>
-  /// <param name="url">The API endpoint URL to fetch data from.</param>
-  /// <returns>Result containing the JSON response string or an error.</returns>
-  let fetchJsonData (url : string) =
-    async {
-      try
-        use client = new HttpClient ()
-        client.Timeout <- TimeSpan.FromSeconds (30.0)
-
-        let! response = client.GetAsync (url) |> Async.AwaitTask
-        response.EnsureSuccessStatusCode () |> ignore
-
-        let! content = response.Content.ReadAsStringAsync () |> Async.AwaitTask
-        return Ok content
-      with
-      | :? HttpRequestException as ex ->
-        return
-          Error (DataAcquisitionFailed $"HTTP request failed: {ex.Message}")
-      | :? TaskCanceledException ->
-        return Error (DataAcquisitionFailed "Request timed out")
-      | ex ->
-        return Error (DataAcquisitionFailed $"Unexpected error: {ex.Message}")
-    }
-
-  /// <summary>
-  /// Parses JSON response string into an array of RawGoldData records.
-  /// </summary>
-  /// <param name="jsonString">The JSON string to parse.</param>
-  /// <returns>Result containing array of RawGoldData or a parsing error.</returns>
-  let parseGoldData (jsonString : string) =
-    try
-      let data = JsonConvert.DeserializeObject<RawGoldData[]> (jsonString)
-      Ok data
-    with ex ->
-      Error (DataAcquisitionFailed $"JSON parsing failed: {ex.Message}")
-
-  /// <summary>
-  /// Converts raw API data to structured GoldDataRecord objects.
-  /// Filters out invalid records and parses dates.
-  /// </summary>
-  /// <param name="rawData">Array of raw gold data from the API.</param>
-  /// <returns>Result containing array of GoldDataRecord or conversion error.</returns>
-  let convertToGoldDataRecords (rawData : RawGoldData[]) =
-    try
-      let records =
-        rawData
-        |> Array.filter (fun item ->
-          not (String.IsNullOrWhiteSpace (item.Date)) && item.Close > 0.0)
-        |> Array.map (fun item ->
-          { Date = DateTime.Parse (item.Date)
-            Close = item.Close
-            MA3 = 0.0f // Will be calculated later
-            MA9 = 0.0f }) // Will be calculated later
-        |> Array.sortBy (fun r -> r.Date)
-
-      if records.Length = 0 then
-        Error (
-          DataAcquisitionFailed "No valid data records found after filtering"
-        )
-      else
-        Ok records
-    with ex ->
-      Error (DataAcquisitionFailed $"Data conversion failed: {ex.Message}")
-
-  /// <summary>
-  /// Fetches gold ETF data from the API and converts it to structured records.
-  /// This is the main entry point for data acquisition.
-  /// </summary>
-  /// <param name="config">Configuration containing API parameters.</param>
+  /// <param name="provider">The data provider to use for fetching data.</param>
+  /// <param name="config">Configuration containing data source parameters.</param>
   /// <returns>Result containing array of GoldDataRecord or an acquisition error.</returns>
-  let acquireGoldData (config : GoldMachineConfig) =
+  let acquireGoldData (provider : IDataProvider) (config : GoldMachineConfig) =
     async {
-      let url = Configuration.buildApiUrl config
-
-      match! fetchJsonData url with
+      match! provider.FetchRawData config with
       | Error err -> return Error err
-      | Ok jsonString ->
-        match parseGoldData jsonString with
-        | Error err -> return Error err
-        | Ok rawData -> return convertToGoldDataRecords rawData
+      | Ok rawData ->
+        let records = DataProcessing.convertRawDataToRecords rawData
+        return Ok records
     }
 
   /// <summary>
@@ -112,3 +38,15 @@ module DataAcquisition =
       Error (DataAcquisitionFailed "Data contains invalid price values")
     else
       Ok records
+
+  /// <summary>
+  /// Legacy function for backward compatibility.
+  /// Uses the provider configured in the configuration.
+  /// </summary>
+  /// <param name="config">Configuration containing API parameters.</param>
+  /// <returns>Result containing array of GoldDataRecord or an acquisition error.</returns>
+  let acquireGoldDataLegacy (config : GoldMachineConfig) =
+    let provider =
+      DataProviders.DataProviderFactory.getProviderFromConfig config
+
+    acquireGoldData provider config

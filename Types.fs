@@ -55,20 +55,66 @@ type GoldDataRecord =
     MA9 : float32 }
 
 /// <summary>
-/// Represents raw data retrieved from the API.
+/// Represents raw data retrieved from the gold ETF API.
 /// Contains date and closing price information.
 /// </summary>
-type RawGoldData =
+type RawGoldETFData =
   { [<JsonProperty("日期")>]
     Date : string
     [<JsonProperty("收盘")>]
     Close : float }
 
 /// <summary>
-/// Represents the response structure from the gold ETF API.
-/// Contains an array of raw gold data records.
+/// Represents raw data retrieved from the Shanghai Gold Exchange API.
+/// Contains OHLC (Open, High, Low, Close) price information.
 /// </summary>
-type ApiResponse = { Data : RawGoldData[] }
+type RawGoldSGEData =
+  { [<JsonProperty("date")>]
+    Date : DateTime
+    [<JsonProperty("open")>]
+    Open : float
+    [<JsonProperty("high")>]
+    High : float
+    [<JsonProperty("low")>]
+    Low : float
+    [<JsonProperty("close")>]
+    Close : float }
+
+/// <summary>
+/// Represents the response structure from the gold ETF API.
+/// The API returns a direct array of gold data records.
+/// </summary>
+type ETFResponse = RawGoldETFData[]
+
+/// <summary>
+/// Represents the response structure from the Shanghai Gold Exchange API.
+/// The API returns a direct array of OHLC data records.
+/// </summary>
+type SGEResponse = RawGoldSGEData[]
+
+/// <summary>
+/// Union type representing different types of raw data sources.
+/// </summary>
+type RawDataSource =
+  | ETF of RawGoldETFData[]
+  | SGE of RawGoldSGEData[]
+
+/// <summary>
+/// Enumeration of supported data providers.
+/// </summary>
+type DataProviderType =
+  | ETFProvider
+  | SGEProvider
+
+/// <summary>
+/// Represents different types of errors that can occur in the system.
+/// </summary>
+type GoldMachineError =
+  | InvalidDateRange of string
+  | DataAcquisitionFailed of string
+  | ModelTrainingFailed of string
+  | FileOperationFailed of string
+  | ConfigurationError of string
 
 /// <summary>
 /// Configuration settings for the gold price prediction system.
@@ -79,7 +125,31 @@ type GoldMachineConfig =
     Symbol : string
     StartDate : string
     TrainRatio : float
-    RiskFreeRate : float }
+    RiskFreeRate : float
+    DataProvider : DataProviderType }
+
+/// <summary>
+/// Abstract interface for data providers.
+/// Defines the contract for different data sources to implement.
+/// </summary>
+type IDataProvider =
+  /// <summary>
+  /// Gets the name of the data provider.
+  /// </summary>
+  abstract member Name : string
+
+  /// <summary>
+  /// Gets the type of the data provider.
+  /// </summary>
+  abstract member ProviderType : DataProviderType
+
+  /// <summary>
+  /// Fetches raw data from the data source.
+  /// </summary>
+  /// <param name="config">Configuration containing data source parameters.</param>
+  /// <returns>Result containing raw data or an error.</returns>
+  abstract member FetchRawData :
+    GoldMachineConfig -> Async<Result<RawDataSource, GoldMachineError>>
 
 /// <summary>
 /// Represents evaluation metrics for model performance.
@@ -94,13 +164,3 @@ type ModelEvaluation =
 /// Values: 1.0 for buy signal, 0.0 for hold.
 /// </summary>
 type TradingSignal = float
-
-/// <summary>
-/// Represents different types of errors that can occur in the system.
-/// </summary>
-type GoldMachineError =
-  | InvalidDateRange of string
-  | DataAcquisitionFailed of string
-  | ModelTrainingFailed of string
-  | FileOperationFailed of string
-  | ConfigurationError of string

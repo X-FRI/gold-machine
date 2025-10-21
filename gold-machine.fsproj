@@ -9,8 +9,9 @@
   <ItemGroup>
     <Compile Include="Types.fs" />
     <Compile Include="Configuration.fs" />
-    <Compile Include="DataAcquisition.fs" />
     <Compile Include="DataProcessing.fs" />
+    <Compile Include="DataProviders.fs" />
+    <Compile Include="DataAcquisition.fs" />
     <Compile Include="MachineLearning.fs" />
     <Compile Include="TradingStrategy.fs" />
     <Compile Include="Visualization.fs" />
