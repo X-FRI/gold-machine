@@ -99,6 +99,46 @@ module MachineLearning =
         1.0f - (ssRes / ssTot)
 
   /// <summary>
+  /// Calculates the Mean Absolute Error (MAE).
+  /// </summary>
+  /// <param name="actual">Array of actual values.</param>
+  /// <param name="predicted">Array of predicted values.</param>
+  /// <returns>The mean absolute error.</returns>
+  let calculateMAE (actual : float32[]) (predicted : float32[]) =
+    match DataProcessing.validateArrayLengths [| actual ; predicted |] with
+    | Error _ -> 0.0f
+    | Ok _ ->
+      Array.zip actual predicted |> Array.averageBy (fun (a, p) -> abs (a - p))
+
+  /// <summary>
+  /// Calculates the Root Mean Squared Error (RMSE).
+  /// </summary>
+  /// <param name="actual">Array of actual values.</param>
+  /// <param name="predicted">Array of predicted values.</param>
+  /// <returns>The root mean squared error.</returns>
+  let calculateRMSE (actual : float32[]) (predicted : float32[]) =
+    match DataProcessing.validateArrayLengths [| actual ; predicted |] with
+    | Error _ -> 0.0f
+    | Ok _ ->
+      Array.zip actual predicted
+      |> Array.averageBy (fun (a, p) -> (a - p) ** 2.0f)
+      |> sqrt
+
+  /// <summary>
+  /// Calculates the Mean Absolute Percentage Error (MAPE).
+  /// </summary>
+  /// <param name="actual">Array of actual values.</param>
+  /// <param name="predicted">Array of predicted values.</param>
+  /// <returns>The mean absolute percentage error as a percentage.</returns>
+  let calculateMAPE (actual : float32[]) (predicted : float32[]) =
+    match DataProcessing.validateArrayLengths [| actual ; predicted |] with
+    | Error _ -> 0.0
+    | Ok _ ->
+      Array.zip actual predicted
+      |> Array.filter (fun (a, _) -> a <> 0.0f) // Avoid division by zero
+      |> Array.averageBy (fun (a, p) -> float (abs ((a - p) / a)) * 100.0)
+
+  /// <summary>
   /// Evaluates the performance of a trained model.
   /// </summary>
   /// <param name="model">The trained prediction model.</param>
@@ -112,9 +152,15 @@ module MachineLearning =
     =
     let predictions = predictBatch model testInputs
     let rSquared = calculateRSquared actualPrices predictions
+    let mae = calculateMAE actualPrices predictions
+    let rmse = calculateRMSE actualPrices predictions
+    let mape = calculateMAPE actualPrices predictions
 
     { RSquared = rSquared
-      SharpeRatio = 0.0 } // Sharpe ratio calculated separately in trading strategy
+      SharpeRatio = 0.0 // Sharpe ratio calculated separately in trading strategy
+      MAE = mae
+      RMSE = rmse
+      MAPE = mape }
 
   /// <summary>
   /// Creates prediction input from a gold data record.

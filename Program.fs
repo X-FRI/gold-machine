@@ -135,6 +135,9 @@ module Program =
                     actualPrices
 
                 logInfo (sprintf "Model R² Score: %.4f" evaluation.RSquared)
+                logInfo (sprintf "Model MAE: %.4f" evaluation.MAE)
+                logInfo (sprintf "Model RMSE: %.4f" evaluation.RMSE)
+                logInfo (sprintf "Model MAPE: %.2f%%" evaluation.MAPE)
 
                 // Generate predictions for test data
                 logInfo "Generating price predictions..."
