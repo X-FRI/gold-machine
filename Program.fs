@@ -306,30 +306,74 @@ module Program =
     }
 
   /// <summary>
-  /// Creates configuration based on command line arguments.
+  /// Parses command line arguments and creates appropriate configuration.
   /// </summary>
   /// <param name="argv">Command line arguments.</param>
   /// <returns>GoldMachineConfig for the specified data provider.</returns>
   let createConfigFromArgs (argv : string[]) =
-    if argv.Length > 0 && argv.[0].ToLower () = "sge" then
+    let mutable etfSymbol = "518880" // Default ETF symbol (GLD ETF)
+    let mutable useSGE = false
+
+    // Parse command line arguments
+    let rec parseArgs index =
+      if index < argv.Length then
+        match argv.[index].ToLower () with
+        | "--etf" ->
+          if index + 1 < argv.Length then
+            etfSymbol <- argv.[index + 1]
+            parseArgs (index + 2)
+          else
+            logError "Error: --etf requires a symbol argument"
+            parseArgs (index + 1)
+        | "sge" ->
+          useSGE <- true
+          parseArgs (index + 1)
+        | arg when arg.StartsWith ("--") ->
+          logError $"Warning: Unknown option '{arg}'"
+          parseArgs (index + 1)
+        | arg ->
+          logError $"Warning: Unknown argument '{arg}'"
+          parseArgs (index + 1)
+      else
+        ()
+
+    parseArgs 0
+
+    // Create configuration based on parsed arguments
+    if useSGE then
       logInfo "Using Shanghai Gold Exchange data provider"
       Configuration.getSGEConfig ()
     else
-      logInfo "Using default ETF data provider"
-      Configuration.getDefaultConfig ()
+      if etfSymbol <> "518880" then
+        logInfo $"Using custom ETF symbol: {etfSymbol}"
+      else
+        logInfo "Using default ETF data provider (GLD ETF)"
+
+      Configuration.getETFConfig etfSymbol
 
   /// <summary>
   /// Main entry point for the Gold Price Prediction System.
   /// </summary>
-  /// <param name="argv">Command line arguments. Pass "sge" to use Shanghai Gold Exchange data.</param>
+  /// <param name="argv">Command line arguments for data source configuration.</param>
   /// <returns>Exit code (0 for success, 1 for failure).</returns>
   [<EntryPoint>]
   let main argv =
     printfn "Gold Price Prediction System v2.0"
     printfn "==================================="
-    printfn "Usage: dotnet run [sge]"
-    printfn "  (no args) - Use ETF data (default)"
-    printfn "  sge       - Use Shanghai Gold Exchange data"
+    printfn "Usage: dotnet run [options]"
+    printfn ""
+    printfn "Options:"
+
+    printfn
+      "  --etf <symbol>    Use ETF data with custom symbol (default: 518880 for GLD ETF)"
+
+    printfn "  sge               Use Shanghai Gold Exchange data"
+    printfn "  (no args)         Use default ETF data (518880)"
+    printfn ""
+    printfn "Examples:"
+    printfn "  dotnet run                    # Use default GLD ETF (518880)"
+    printfn "  dotnet run --etf 159941       # Use custom ETF symbol"
+    printfn "  dotnet run sge                # Use Shanghai Gold Exchange data"
     printfn ""
 
     let config = createConfigFromArgs argv

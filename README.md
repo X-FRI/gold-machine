@@ -26,11 +26,36 @@ A command-line application for predicting gold ETF and futures prices using mach
 ## Usage
 
 ```bash
-# Use default ETF data
+# Use default ETF data (GLD ETF)
 dotnet run
+
+# Use custom ETF symbol
+dotnet run --etf 159941
 
 # Use Shanghai Gold Exchange data
 dotnet run sge
+```
+
+### Command Line Options
+
+- `--etf <symbol>`: Specify custom ETF symbol (default: 518880 for GLD ETF)
+- `sge`: Use Shanghai Gold Exchange futures data
+- No arguments: Use default ETF data
+
+### Examples
+
+```bash
+# Default usage - GLD ETF
+dotnet run
+
+# Custom ETF - e.g., another gold ETF
+dotnet run --etf 159941
+
+# Shanghai Gold Exchange futures
+dotnet run sge
+
+# Help information
+dotnet run --help
 ```
 
 ## Configuration

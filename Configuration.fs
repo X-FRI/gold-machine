@@ -33,6 +33,22 @@ module Configuration =
       DataProvider = SGEProvider }
 
   /// <summary>
+  /// Gets the configuration for a custom ETF symbol.
+  /// </summary>
+  /// <param name="etfSymbol">The ETF symbol to use (e.g., "518880" for GLD ETF).</param>
+  /// <returns>A GoldMachineConfig configured for the specified ETF.</returns>
+  let getETFConfig (etfSymbol : string) =
+    if String.IsNullOrWhiteSpace etfSymbol then
+      getDefaultConfig () // Fall back to default if symbol is empty
+    else
+      { ApiBaseUrl = "http://127.0.0.1:8080/api/public"
+        Symbol = etfSymbol // Custom ETF symbol
+        StartDate = "20000101" // Start from year 2000
+        TrainRatio = 0.8 // 80% training, 20% testing
+        RiskFreeRate = 0.0 // Risk-free rate for Sharpe ratio calculation
+        DataProvider = ETFProvider }
+
+  /// <summary>
   /// Validates the configuration parameters.
   /// </summary>
   /// <param name="config">The configuration to validate.</param>
