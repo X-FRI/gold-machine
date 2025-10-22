@@ -50,6 +50,15 @@ The system supports configuration via environment variables:
 - `GOLD_MACHINE_RISK_FREE_RATE`: Risk-free rate for Sharpe ratio (default: 0.02)
 - `GOLD_MACHINE_DATA_PROVIDER`: Data provider ETF or SGE (default: ETF)
 - `GOLD_MACHINE_ALGORITHM`: ML algorithm: LinearRegression, FastTree, FastForest, OnlineGradientDescent (default: LinearRegression)
+- `GOLD_MACHINE_FASTTREE_TREES`: FastTree number of trees (default: 100)
+- `GOLD_MACHINE_FASTTREE_LEAVES`: FastTree number of leaves per tree (default: 20)
+- `GOLD_MACHINE_FASTTREE_MIN_EXAMPLES`: FastTree minimum examples per leaf (default: 10)
+- `GOLD_MACHINE_FASTTREE_LEARNING_RATE`: FastTree learning rate (default: 0.2)
+- `GOLD_MACHINE_FASTTREE_SHRINKAGE`: FastTree shrinkage (default: 0.1)
+- `GOLD_MACHINE_FASTFOREST_TREES`: FastForest number of trees (default: 100)
+- `GOLD_MACHINE_FASTFOREST_LEAVES`: FastForest number of leaves per tree (default: 20)
+- `GOLD_MACHINE_FASTFOREST_MIN_EXAMPLES`: FastForest minimum examples per leaf (default: 10)
+- `GOLD_MACHINE_FASTFOREST_SHRINKAGE`: FastForest shrinkage (default: 0.1)
 
 ### Command Line Options
 

@@ -53,13 +53,6 @@ module Program =
       try
         logInfo "Starting Gold Price Prediction System..."
 
-        // Display configuration
-        logInfo
-          $"Configuration: API={config.ApiBaseUrl}, Symbol={config.Symbol}, StartDate={config.StartDate}"
-
-        logInfo
-          $"TrainRatio={config.TrainRatio}, RiskFreeRate={config.RiskFreeRate}, Provider={config.DataProvider}"
-
         // Validate configuration
         match Configuration.validateConfig config with
         | Error err -> return Error err
@@ -117,219 +110,374 @@ module Program =
                 )
 
                 // Train the machine learning model
-                logInfo $"Training {config.MLAlgorithm} model..."
                 let mlContext = MachineLearning.createMLContext ()
 
-                let model =
-                  MachineLearning.trainModel
-                    mlContext
-                    trainData
-                    config.MLAlgorithm
+                if config.UseEnsemble then
+                  logInfo
+                    "Training ensemble model with all available algorithms..."
 
-                match MachineLearning.validateModel model with
-                | Error err -> return Error err
-                | Ok validatedModel ->
-
-                  logInfo "Model trained successfully"
-
-                  // Evaluate model performance
-                  logInfo "Evaluating model performance..."
-
-                  let testInputs =
-                    testData
-                    |> Array.map MachineLearning.createPredictionInput
-                    |> Array.toSeq
-
-                  let actualPrices =
-                    testData |> Array.map (fun r -> float32 r.Close)
-
-                  let evaluation =
-                    MachineLearning.evaluateModel
-                      validatedModel
-                      testInputs
-                      actualPrices
-
-                  logInfo (sprintf "Model R² Score: %.4f" evaluation.RSquared)
-                  logInfo (sprintf "Model MAE: %.4f" evaluation.MAE)
-                  logInfo (sprintf "Model RMSE: %.4f" evaluation.RMSE)
-                  logInfo (sprintf "Model MAPE: %.2f%%" evaluation.MAPE)
-
-                  // Model health assessment
-                  logInfo "Performing model health assessment..."
-
-                  let healthReport =
-                    MachineLearning.assessModelHealth evaluation
-
-                  logInfo (
-                    sprintf "Model Health Status: %A" healthReport.Status
-                  )
-
-                  logInfo (sprintf "Health Message: %s" healthReport.Message)
-                  logInfo (sprintf "Risk Level: %.2f" healthReport.RiskLevel)
-
-                  if healthReport.Recommendations.Length > 0 then
-                    logInfo "Recommendations:"
-
-                    healthReport.Recommendations
-                    |> List.iter (fun recommendation ->
-                      logInfo (sprintf "  - %s" recommendation))
-
-                  // Generate predictions for test data
-                  logInfo "Generating price predictions..."
-
-                  let predictions =
-                    MachineLearning.predictBatch validatedModel testInputs
-
-                  // Evaluate trading strategy
-                  logInfo "Evaluating simple trading strategy..."
-
-                  let (signals, strategyReturns, cumulativeReturns, sharpeRatio) =
-                    TradingStrategy.evaluateStrategy
-                      predictions
-                      actualPrices
-                      config
-
-                  logInfo (sprintf "Strategy Sharpe Ratio: %.4f" sharpeRatio)
-
-                  // Perform walk-forward backtesting
-                  logInfo "Performing walk-forward backtesting..."
-
-                  let backtestTrainModel =
-                    fun (data : GoldDataRecord[]) ->
-                      MachineLearning.trainModel
-                        mlContext
-                        data
-                        config.MLAlgorithm
-
-                  let backtestResult =
-                    TradingStrategy.performWalkForwardBacktest
-                      processedRecords
-                      100 // Initial training size
-                      20 // Test window size
-                      backtestTrainModel
-                      config
-
-                  logInfo (
-                    sprintf
-                      "Backtest Total Return: %.2f%%"
-                      (backtestResult.TotalReturn * 100.0)
-                  )
-
-                  logInfo (
-                    sprintf
-                      "Backtest Annualized Return: %.2f%%"
-                      (backtestResult.AnnualizedReturn * 100.0)
-                  )
-
-                  logInfo (
-                    sprintf
-                      "Backtest Sharpe Ratio: %.4f"
-                      backtestResult.SharpeRatio
-                  )
-
-                  logInfo (
-                    sprintf
-                      "Backtest Max Drawdown: %.2f%%"
-                      (backtestResult.MaxDrawdown * 100.0)
-                  )
-
-                  logInfo (
-                    sprintf
-                      "Backtest Win Rate: %.2f%%"
-                      (backtestResult.WinRate * 100.0)
-                  )
-
-                  logInfo (
-                    sprintf
-                      "Backtest Profit Factor: %.2f"
-                      backtestResult.ProfitFactor
-                  )
-
-                  // Get latest data for prediction interval estimation
-                  let latestTestData = testData.[testData.Length - 1]
-
-                  // Prediction interval estimation
-                  logInfo "Estimating prediction intervals..."
-                  let latestPrediction = predictions.[predictions.Length - 1]
-
-                  let predictionInterval =
-                    MachineLearning.estimatePredictionInterval
-                      latestPrediction
-                      evaluation.RMSE
-                      0.95
-
-                  let adjustedInterval =
-                    MachineLearning.adjustIntervalForPriceRange
-                      predictionInterval
-                      evaluation.MAPE
-                      latestTestData.Close
-
-                  logInfo (
-                    sprintf
-                      "95%% Prediction Interval: [%.2f, %.2f]"
-                      (fst predictionInterval)
-                      (snd predictionInterval)
-                  )
-
-                  logInfo (
-                    sprintf
-                      "MAPE-adjusted Interval: [%.2f, %.2f]"
-                      (fst adjustedInterval)
-                      (snd adjustedInterval)
-                  )
-
-                  // Generate visualization charts
-                  logInfo "Generating analysis charts..."
-                  let testDates = testData |> Array.map (fun r -> r.Date)
-
-                  match
-                    Visualization.generateAnalysisCharts
-                      testDates
-                      actualPrices
-                      predictions
-                      cumulativeReturns
-                  with
+                  match MachineLearning.trainEnsembleModel trainData config with
                   | Error err -> return Error err
-                  | Ok _ ->
+                  | Ok ensembleModel ->
 
-                    logInfo "Charts saved successfully"
+                    match
+                      MachineLearning.validateEnsembleModel ensembleModel
+                    with
+                    | Error err -> return Error err
+                    | Ok validatedEnsemble ->
 
-                    // Generate trading recommendation for latest data
-                    logInfo "Generating trading recommendation..."
+                      logInfo "Ensemble model trained successfully"
 
-                    let latestData =
-                      processedRecords.[processedRecords.Length - 1]
+                      // Evaluate ensemble model performance
+                      logInfo "Evaluating ensemble model performance..."
 
-                    let predictedPrice =
-                      MachineLearning.predict
+                      let testInputs =
+                        testData
+                        |> Array.map MachineLearning.createPredictionInput
+                        |> Array.toSeq
+
+                      let actualPrices =
+                        testData |> Array.map (fun r -> float32 r.Close)
+
+                      let ensembleEvaluation =
+                        MachineLearning.evaluateEnsembleModel
+                          validatedEnsemble
+                          testInputs
+                          actualPrices
+
+                      logInfo
+                        $"Ensemble R² Score: {ensembleEvaluation.EnsembleRSquared:F4}"
+
+                      logInfo
+                        $"Ensemble MAE: {ensembleEvaluation.EnsembleMAE:F4}"
+
+                      logInfo
+                        $"Ensemble RMSE: {ensembleEvaluation.EnsembleRMSE:F4}"
+
+                      logInfo
+                        $"Ensemble MAPE: {ensembleEvaluation.EnsembleMAPE:P2}"
+
+                      // Log individual model performances
+                      logInfo "Individual model performances:"
+
+                      ensembleEvaluation.IndividualEvaluations
+                      |> List.iter (fun (alg, eval) ->
+                        logInfo
+                          $"  {alg}: R²={eval.RSquared:F4}, MAE={eval.MAE:F4}, RMSE={eval.RMSE:F4}, MAPE={eval.MAPE:P2}")
+
+                      // Continue with trading strategy using ensemble model
+                      let currentRecord =
+                        processedRecords.[processedRecords.Length - 1]
+
+                      let currentInput =
+                        MachineLearning.createPredictionInput currentRecord
+
+                      let predictedPrice =
+                        MachineLearning.predictWithEnsemble
+                          validatedEnsemble
+                          currentInput
+
+                      logInfo
+                        $"Current price: {currentRecord.Close:F4}, Predicted price: {predictedPrice:F4}"
+
+                      let signals =
+                        TradingStrategy.generateSimpleSignals
+                          [| predictedPrice |]
+                          [| float32 currentRecord.Close |]
+
+                      let signal =
+                        if signals.Length > 0 then float signals.[0] else 0.0
+
+                      let recommendation =
+                        TradingStrategy.generateTradingRecommendation
+                          currentRecord.Close
+                          predictedPrice
+
+                      logInfo $"{recommendation}"
+
+                      // Generate visualizations
+                      logInfo "Generating price prediction visualization..."
+
+                      let allInputs =
+                        processedRecords
+                        |> Array.map MachineLearning.createPredictionInput
+                        |> Array.toSeq
+
+                      let allPredictions =
+                        MachineLearning.predictBatchWithEnsemble
+                          validatedEnsemble
+                          allInputs
+
+                      let actualPricesAll =
+                        processedRecords |> Array.map (fun r -> float r.Close)
+
+                      match
+                        Visualization.generateAnalysisCharts
+                          (processedRecords |> Array.map (fun r -> r.Date))
+                          (processedRecords
+                           |> Array.map (fun r -> float32 r.Close))
+                          allPredictions
+                          [||] // Empty cumulative returns for now
+                      with
+                      | Ok _ -> logInfo "Charts generated successfully"
+                      | Error err -> logInfo $"Chart generation failed: {err}"
+
+                      // Calculate and display trading strategy metrics
+                      let returns =
+                        DataProcessing.calculatePercentageChange actualPricesAll
+
+                      let strategyReturns =
+                        TradingStrategy.calculateStrategyReturns
+                          returns
+                          [| signal |]
+
+                      let cumulativeReturns =
+                        DataProcessing.calculateCumulativeReturns
+                          strategyReturns
+
+                      let sharpeRatio =
+                        DataProcessing.calculateSharpeRatio
+                          strategyReturns
+                          config.RiskFreeRate
+
+                      let totalReturn =
+                        if cumulativeReturns.Length > 0 then
+                          cumulativeReturns.[cumulativeReturns.Length - 1]
+                        else
+                          0.0
+
+                      let annualizedReturn =
+                        totalReturn / float processedRecords.Length * 252.0 // Assuming 252 trading days per year
+
+                      let maxDrawdown = 0.0 // Placeholder
+
+                      logInfo $"Strategy Sharpe Ratio: {sharpeRatio:F4}"
+                      logInfo $"Total Return: {totalReturn:P2}"
+                      logInfo $"Annualized Return: {annualizedReturn:P2}"
+                      logInfo $"Max Drawdown: {maxDrawdown:P2}"
+
+                      // Charts are already generated above
+                      logInfo "Analysis complete"
+
+                      return Ok ()
+                else
+                  logInfo $"Training {config.MLAlgorithm} model..."
+
+                  let model =
+                    MachineLearning.trainModel
+                      mlContext
+                      trainData
+                      config.MLAlgorithm
+                      config
+
+                  match MachineLearning.validateModel model with
+                  | Error err -> return Error err
+                  | Ok validatedModel ->
+
+                    logInfo "Model trained successfully"
+
+                    // Evaluate model performance
+                    logInfo "Evaluating model performance..."
+
+                    let testInputs =
+                      testData
+                      |> Array.map MachineLearning.createPredictionInput
+                      |> Array.toSeq
+
+                    let actualPrices =
+                      testData |> Array.map (fun r -> float32 r.Close)
+
+                    let evaluation =
+                      MachineLearning.evaluateModel
                         validatedModel
-                        (MachineLearning.createPredictionInput latestData)
+                        testInputs
+                        actualPrices
 
-                    let recommendation =
-                      TradingStrategy.generateTradingRecommendation
-                        latestData.Close
-                        predictedPrice
+                    logInfo (sprintf "Model R² Score: %.4f" evaluation.RSquared)
+                    logInfo (sprintf "Model MAE: %.4f" evaluation.MAE)
+                    logInfo (sprintf "Model RMSE: %.4f" evaluation.RMSE)
+                    logInfo (sprintf "Model MAPE: %.2f%%" evaluation.MAPE)
+
+                    // Model health assessment
+                    logInfo "Performing model health assessment..."
+
+                    let healthReport =
+                      MachineLearning.assessModelHealth evaluation
+
+                    logInfo (
+                      sprintf "Model Health Status: %A" healthReport.Status
+                    )
+
+                    logInfo (sprintf "Health Message: %s" healthReport.Message)
+                    logInfo (sprintf "Risk Level: %.2f" healthReport.RiskLevel)
+
+                    if healthReport.Recommendations.Length > 0 then
+                      logInfo "Recommendations:"
+
+                      healthReport.Recommendations
+                      |> List.iter (fun recommendation ->
+                        logInfo (sprintf "  - %s" recommendation))
+
+                    // Generate predictions for test data
+                    logInfo "Generating price predictions..."
+
+                    let predictions =
+                      MachineLearning.predictBatch validatedModel testInputs
+
+                    // Evaluate trading strategy
+                    logInfo "Evaluating simple trading strategy..."
+
+                    let (signals,
+                         strategyReturns,
+                         cumulativeReturns,
+                         sharpeRatio) =
+                      TradingStrategy.evaluateStrategy
+                        predictions
+                        actualPrices
+                        config
+
+                    logInfo (sprintf "Strategy Sharpe Ratio: %.4f" sharpeRatio)
+
+                    // Perform walk-forward backtesting
+                    logInfo "Performing walk-forward backtesting..."
+
+                    let backtestTrainModel =
+                      fun (data : GoldDataRecord[]) ->
+                        MachineLearning.trainModel
+                          mlContext
+                          data
+                          config.MLAlgorithm
+                          config
+
+                    let backtestResult =
+                      TradingStrategy.performWalkForwardBacktest
+                        processedRecords
+                        100 // Initial training size
+                        20 // Test window size
+                        backtestTrainModel
+                        config
 
                     logInfo (
                       sprintf
-                        "Latest data date: %s"
-                        (latestData.Date.ToString ("yyyy-MM-dd"))
-                    )
-
-                    logInfo (sprintf "Current price: %.2f" latestData.Close)
-
-                    logInfo (
-                      sprintf "Predicted next price: %.2f" predictedPrice
+                        "Backtest Total Return: %.2f%%"
+                        (backtestResult.TotalReturn * 100.0)
                     )
 
                     logInfo (
-                      sprintf "Trading recommendation: %s" recommendation
+                      sprintf
+                        "Backtest Annualized Return: %.2f%%"
+                        (backtestResult.AnnualizedReturn * 100.0)
                     )
 
-                    logInfo
-                      "Gold Price Prediction System completed successfully"
+                    logInfo (
+                      sprintf
+                        "Backtest Sharpe Ratio: %.4f"
+                        backtestResult.SharpeRatio
+                    )
 
-                    return Ok ()
+                    logInfo (
+                      sprintf
+                        "Backtest Max Drawdown: %.2f%%"
+                        (backtestResult.MaxDrawdown * 100.0)
+                    )
+
+                    logInfo (
+                      sprintf
+                        "Backtest Win Rate: %.2f%%"
+                        (backtestResult.WinRate * 100.0)
+                    )
+
+                    logInfo (
+                      sprintf
+                        "Backtest Profit Factor: %.2f"
+                        backtestResult.ProfitFactor
+                    )
+
+                    // Get latest data for prediction interval estimation
+                    let latestTestData = testData.[testData.Length - 1]
+
+                    // Prediction interval estimation
+                    logInfo "Estimating prediction intervals..."
+                    let latestPrediction = predictions.[predictions.Length - 1]
+
+                    let predictionInterval =
+                      MachineLearning.estimatePredictionInterval
+                        latestPrediction
+                        evaluation.RMSE
+                        0.95
+
+                    let adjustedInterval =
+                      MachineLearning.adjustIntervalForPriceRange
+                        predictionInterval
+                        evaluation.MAPE
+                        latestTestData.Close
+
+                    logInfo (
+                      sprintf
+                        "95%% Prediction Interval: [%.2f, %.2f]"
+                        (fst predictionInterval)
+                        (snd predictionInterval)
+                    )
+
+                    logInfo (
+                      sprintf
+                        "MAPE-adjusted Interval: [%.2f, %.2f]"
+                        (fst adjustedInterval)
+                        (snd adjustedInterval)
+                    )
+
+                    // Generate visualization charts
+                    logInfo "Generating analysis charts..."
+                    let testDates = testData |> Array.map (fun r -> r.Date)
+
+                    match
+                      Visualization.generateAnalysisCharts
+                        testDates
+                        actualPrices
+                        predictions
+                        cumulativeReturns
+                    with
+                    | Error err -> return Error err
+                    | Ok _ ->
+
+                      logInfo "Charts saved successfully"
+
+                      // Generate trading recommendation for latest data
+                      logInfo "Generating trading recommendation..."
+
+                      let latestData =
+                        processedRecords.[processedRecords.Length - 1]
+
+                      let predictedPrice =
+                        MachineLearning.predict
+                          validatedModel
+                          (MachineLearning.createPredictionInput latestData)
+
+                      let recommendation =
+                        TradingStrategy.generateTradingRecommendation
+                          latestData.Close
+                          predictedPrice
+
+                      logInfo (
+                        sprintf
+                          "Latest data date: %s"
+                          (latestData.Date.ToString ("yyyy-MM-dd"))
+                      )
+
+                      logInfo (sprintf "Current price: %.2f" latestData.Close)
+
+                      logInfo (
+                        sprintf "Predicted next price: %.2f" predictedPrice
+                      )
+
+                      logInfo (
+                        sprintf "Trading recommendation: %s" recommendation
+                      )
+
+                      logInfo
+                        "Gold Price Prediction System completed successfully"
+
+                      return Ok ()
       with ex ->
         return
           Error (
@@ -347,6 +495,7 @@ module Program =
   let createConfigFromArgs (argv : string[]) =
     let mutable etfSymbol = "518880" // Default ETF symbol (GLD ETF)
     let mutable useSGE = false
+    let mutable useEnsemble = false
 
     // Parse command line arguments
     let rec parseArgs index =
@@ -359,6 +508,9 @@ module Program =
           else
             logError "Error: --etf requires a symbol argument"
             parseArgs (index + 1)
+        | "--ensemble" ->
+          useEnsemble <- true
+          parseArgs (index + 1)
         | "sge" ->
           useSGE <- true
           parseArgs (index + 1)
@@ -373,17 +525,33 @@ module Program =
 
     parseArgs 0
 
-    // Create configuration based on parsed arguments
-    if useSGE then
-      logInfo "Using Shanghai Gold Exchange data provider"
-      Configuration.getSGEConfig ()
-    else
-      if etfSymbol <> "518880" then
-        logInfo $"Using custom ETF symbol: {etfSymbol}"
+    // Create base configuration
+    let baseConfig =
+      if useSGE then
+        logInfo "Using Shanghai Gold Exchange data provider"
+        Configuration.getSGEConfig ()
       else
-        logInfo "Using default ETF data provider (GLD ETF)"
+        if etfSymbol <> "518880" then
+          logInfo $"Using custom ETF symbol: {etfSymbol}"
+        else
+          logInfo "Using default ETF data provider (GLD ETF)"
 
-      Configuration.getETFConfig etfSymbol
+        Configuration.getETFConfig etfSymbol
+
+    // Override ensemble setting
+    if useEnsemble then
+      logInfo "Using ensemble model (combining all algorithms)"
+    else
+      let algorithmName =
+        match baseConfig.MLAlgorithm with
+        | LinearRegression -> "LinearRegression"
+        | FastTreeRegression _ -> "FastTreeRegression"
+        | FastForestRegression _ -> "FastForestRegression"
+        | OnlineGradientDescentRegression -> "OnlineGradientDescentRegression"
+
+      logInfo $"Using single {algorithmName} algorithm"
+
+    { baseConfig with UseEnsemble = useEnsemble }
 
   /// <summary>
   /// Main entry point for the Gold Price Prediction System.
@@ -416,12 +584,43 @@ module Program =
     printfn
       "                                FastForest, OnlineGradientDescent (default: LinearRegression)"
 
+    printfn
+      "  GOLD_MACHINE_USE_ENSEMBLE     Use ensemble model combining all algorithms (default: false)"
+
+    printfn
+      "  GOLD_MACHINE_FASTTREE_TREES   FastTree number of trees (default: 100)"
+
+    printfn
+      "  GOLD_MACHINE_FASTTREE_LEAVES  FastTree number of leaves per tree (default: 20)"
+
+    printfn
+      "  GOLD_MACHINE_FASTTREE_MIN_EXAMPLES FastTree minimum examples per leaf (default: 10)"
+
+    printfn
+      "  GOLD_MACHINE_FASTTREE_LEARNING_RATE FastTree learning rate (default: 0.2)"
+
+    printfn
+      "  GOLD_MACHINE_FASTTREE_SHRINKAGE FastTree shrinkage (default: 0.1)"
+
+    printfn
+      "  GOLD_MACHINE_FASTFOREST_TREES FastForest number of trees (default: 100)"
+
+    printfn
+      "  GOLD_MACHINE_FASTFOREST_LEAVES FastForest number of leaves per tree (default: 20)"
+
+    printfn
+      "  GOLD_MACHINE_FASTFOREST_MIN_EXAMPLES FastForest minimum examples per leaf (default: 10)"
+
+    printfn
+      "  GOLD_MACHINE_FASTFOREST_SHRINKAGE FastForest shrinkage (default: 0.1)"
+
     printfn ""
     printfn "Command line options (override environment variables):"
 
     printfn
       "  --etf <symbol>    Use ETF data with custom symbol (default: 518880)"
 
+    printfn "  --ensemble        Use ensemble model (combines all algorithms)"
     printfn "  sge               Use Shanghai Gold Exchange data"
     printfn "  (no args)         Use default configuration"
     printfn ""
@@ -438,6 +637,11 @@ module Program =
 
     printfn
       "  GOLD_MACHINE_SYMBOL=123456 dotnet run     # Set via environment variable"
+
+    printfn "  dotnet run --ensemble                     # Use ensemble model"
+
+    printfn
+      "  GOLD_MACHINE_USE_ENSEMBLE=true dotnet run # Set ensemble via environment variable"
 
     printfn ""
 

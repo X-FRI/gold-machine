@@ -109,7 +109,7 @@ module Visualization =
           cumulativeReturns
           "Strategy Cumulative Returns"
 
-      match saveChart priceComparisonChart "gold_price_prediction.html" with
+      match saveChart priceComparisonChart "price_prediction.html" with
       | Error err -> Error err
       | Ok _ ->
         match saveChart returnsChart "cumulative_returns.html" with

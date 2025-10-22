@@ -53,10 +53,57 @@ module Configuration =
 
     let algorithm =
       match getEnvVar "GOLD_MACHINE_ALGORITHM" "LinearRegression" with
-      | "FastTree" -> FastTreeRegression
-      | "FastForest" -> FastForestRegression
+      | "FastTree" ->
+        let fastTreeParameters =
+          { NumberOfTrees = int (getEnvVar "GOLD_MACHINE_FASTTREE_TREES" "100")
+            NumberOfLeaves = int (getEnvVar "GOLD_MACHINE_FASTTREE_LEAVES" "20")
+            MinimumExampleCountPerLeaf =
+              int (getEnvVar "GOLD_MACHINE_FASTTREE_MIN_EXAMPLES" "10")
+            LearningRate =
+              float32 (getEnvVarFloat "GOLD_MACHINE_FASTTREE_LEARNING_RATE" 0.2)
+            Shrinkage =
+              float32 (getEnvVarFloat "GOLD_MACHINE_FASTTREE_SHRINKAGE" 0.1) }
+
+        FastTreeRegression fastTreeParameters
+      | "FastForest" ->
+        let fastForestParameters =
+          { NumberOfTrees =
+              int (getEnvVar "GOLD_MACHINE_FASTFOREST_TREES" "100")
+            NumberOfLeaves =
+              int (getEnvVar "GOLD_MACHINE_FASTFOREST_LEAVES" "20")
+            MinimumExampleCountPerLeaf =
+              int (getEnvVar "GOLD_MACHINE_FASTFOREST_MIN_EXAMPLES" "10")
+            Shrinkage =
+              float32 (getEnvVarFloat "GOLD_MACHINE_FASTFOREST_SHRINKAGE" 0.1) }
+
+        FastForestRegression fastForestParameters
       | "OnlineGradientDescent" -> OnlineGradientDescentRegression
       | _ -> LinearRegression
+
+    let useEnsemble =
+      match getEnvVar "GOLD_MACHINE_USE_ENSEMBLE" "false" with
+      | "true" -> true
+      | _ -> false
+
+    // FastTree parameters
+    let fastTreeParameters =
+      { NumberOfTrees = int (getEnvVar "GOLD_MACHINE_FASTTREE_TREES" "100")
+        NumberOfLeaves = int (getEnvVar "GOLD_MACHINE_FASTTREE_LEAVES" "20")
+        MinimumExampleCountPerLeaf =
+          int (getEnvVar "GOLD_MACHINE_FASTTREE_MIN_EXAMPLES" "10")
+        LearningRate =
+          float32 (getEnvVarFloat "GOLD_MACHINE_FASTTREE_LEARNING_RATE" 0.2)
+        Shrinkage =
+          float32 (getEnvVarFloat "GOLD_MACHINE_FASTTREE_SHRINKAGE" 0.1) }
+
+    // FastForest parameters
+    let fastForestParameters =
+      { NumberOfTrees = int (getEnvVar "GOLD_MACHINE_FASTFOREST_TREES" "100")
+        NumberOfLeaves = int (getEnvVar "GOLD_MACHINE_FASTFOREST_LEAVES" "20")
+        MinimumExampleCountPerLeaf =
+          int (getEnvVar "GOLD_MACHINE_FASTFOREST_MIN_EXAMPLES" "10")
+        Shrinkage =
+          float32 (getEnvVarFloat "GOLD_MACHINE_FASTFOREST_SHRINKAGE" 0.1) }
 
     { ApiBaseUrl = apiBaseUrl
       Symbol = symbol
@@ -64,7 +111,10 @@ module Configuration =
       TrainRatio = trainRatio
       RiskFreeRate = riskFreeRate
       DataProvider = dataProviderType
-      MLAlgorithm = algorithm }
+      MLAlgorithm = algorithm
+      UseEnsemble = useEnsemble
+      FastTreeParams = fastTreeParameters
+      FastForestParams = fastForestParameters }
 
   /// <summary>
   /// Gets the default configuration for the gold price prediction system.

@@ -23,11 +23,13 @@ module MachineLearning =
   /// <param name="mlContext">The ML context to use for training.</param>
   /// <param name="trainingRecords">Array of training data records.</param>
   /// <param name="algorithm">The algorithm to use for training.</param>
+  /// <param name="config">Configuration containing algorithm parameters.</param>
   /// <returns>A trained GoldPredictionModel.</returns>
   let trainModel
     (mlContext : MLContext)
     (trainingRecords : GoldDataRecord[])
     (algorithm : MLAlgorithm)
+    (config : GoldMachineConfig)
     =
     let trainingData =
       trainingRecords
@@ -47,16 +49,27 @@ module MachineLearning =
           .Append(mlContext.Regression.Trainers.Sdca ())
           .Fit (trainData))
         :> ITransformer
-      | FastTreeRegression ->
+      | FastTreeRegression fastTreeParams ->
         (EstimatorChain()
           .Append(mlContext.Transforms.Concatenate ("Features", "MA3", "MA9"))
-          .Append(mlContext.Regression.Trainers.FastTree ())
+          .Append(
+            mlContext.Regression.Trainers.FastTree (
+              numberOfTrees = fastTreeParams.NumberOfTrees,
+              numberOfLeaves = fastTreeParams.NumberOfLeaves,
+              learningRate = float fastTreeParams.LearningRate
+            )
+          )
           .Fit (trainData))
         :> ITransformer
-      | FastForestRegression ->
+      | FastForestRegression fastForestParams ->
         (EstimatorChain()
           .Append(mlContext.Transforms.Concatenate ("Features", "MA3", "MA9"))
-          .Append(mlContext.Regression.Trainers.FastForest ())
+          .Append(
+            mlContext.Regression.Trainers.FastForest (
+              numberOfTrees = fastForestParams.NumberOfTrees,
+              numberOfLeaves = fastForestParams.NumberOfLeaves
+            )
+          )
           .Fit (trainData))
         :> ITransformer
       | OnlineGradientDescentRegression ->
@@ -76,12 +89,14 @@ module MachineLearning =
   /// </summary>
   /// <param name="mlContext">The ML context to use for training.</param>
   /// <param name="trainingRecords">Array of training data records.</param>
+  /// <param name="config">Configuration containing algorithm parameters.</param>
   /// <returns>A trained GoldPredictionModel.</returns>
   let trainLinearRegression
     (mlContext : MLContext)
     (trainingRecords : GoldDataRecord[])
+    (config : GoldMachineConfig)
     =
-    trainModel mlContext trainingRecords LinearRegression
+    trainModel mlContext trainingRecords LinearRegression config
 
   /// <summary>
   /// Makes a price prediction using the trained model.
@@ -331,12 +346,14 @@ module MachineLearning =
   /// <param name="mlContext">The ML context to use.</param>
   /// <param name="trainingRecords">Training data records.</param>
   /// <param name="algorithm">Algorithm to evaluate.</param>
+  /// <param name="config">Configuration containing algorithm parameters.</param>
   /// <param name="k">Number of folds (default 5).</param>
   /// <returns>Cross-validation results containing average metrics.</returns>
   let crossValidateModel
     (mlContext : MLContext)
     (trainingRecords : GoldDataRecord[])
     (algorithm : MLAlgorithm)
+    (config : GoldMachineConfig)
     (k : int)
     =
     if k < 2 then failwith "Number of folds must be at least 2"
@@ -368,7 +385,7 @@ module MachineLearning =
             [| trainingRecords.[.. testStart - 1]
                trainingRecords.[testEnd + 1 ..] |]
 
-      let model = trainModel mlContext trainData algorithm
+      let model = trainModel mlContext trainData algorithm config
 
       let testInputs =
         testData |> Array.map createPredictionInput |> Array.toSeq
@@ -396,16 +413,20 @@ module MachineLearning =
   /// <param name="mlContext">The ML context to use.</param>
   /// <param name="trainingRecords">Training data records.</param>
   /// <param name="algorithms">List of algorithms to evaluate.</param>
+  /// <param name="config">Configuration containing algorithm parameters.</param>
   /// <returns>The best algorithm and its cross-validation results.</returns>
   let selectBestAlgorithm
     (mlContext : MLContext)
     (trainingRecords : GoldDataRecord[])
     (algorithms : MLAlgorithm list)
+    (config : GoldMachineConfig)
     =
     let results =
       algorithms
       |> List.map (fun alg ->
-        let cvResult = crossValidateModel mlContext trainingRecords alg 5
+        let cvResult =
+          crossValidateModel mlContext trainingRecords alg config 5
+
         alg, cvResult)
 
     // Select algorithm with best R² score (could be changed to other metrics)
@@ -426,3 +447,213 @@ module MachineLearning =
       Ok model
     with ex ->
       Error (ModelTrainingFailed $"Model validation failed: {ex.Message}")
+
+  /// <summary>
+  /// Gets all available ML algorithms for ensemble training with default parameters.
+  /// </summary>
+  /// <param name="config">Configuration containing algorithm parameters.</param>
+  /// <returns>List of all supported ML algorithms.</returns>
+  let getAllAlgorithms (config : GoldMachineConfig) =
+    [ LinearRegression
+      FastTreeRegression config.FastTreeParams
+      FastForestRegression config.FastForestParams
+      OnlineGradientDescentRegression ]
+
+  /// <summary>
+  /// Calculates weights for ensemble models based on their cross-validation performance.
+  /// Uses R-squared scores to determine relative weights, with higher performing models getting higher weights.
+  /// </summary>
+  /// <param name="mlContext">The ML context to use.</param>
+  /// <param name="trainingRecords">Training data for cross-validation.</param>
+  /// <param name="models">List of trained models to weight.</param>
+  /// <returns>List of weights corresponding to each model.</returns>
+  let calculateEnsembleWeights
+    (mlContext : MLContext)
+    (trainingRecords : GoldDataRecord[])
+    (models : GoldPredictionModel list)
+    =
+    if models.Length = 0 then
+      []
+    else
+      // Perform quick evaluation using a holdout set
+      let trainSize = int (float trainingRecords.Length * 0.8)
+      let trainData = trainingRecords.[.. trainSize - 1]
+      let validationData = trainingRecords.[trainSize..]
+
+      let testInputs =
+        validationData |> Array.map createPredictionInput |> Array.toSeq
+
+      let actualPrices = validationData |> Array.map (fun r -> float32 r.Close)
+
+      let performances =
+        models
+        |> List.map (fun model ->
+          let predictions = predictBatch model testInputs
+          let rSquared = calculateRSquared actualPrices predictions
+          // Ensure R-squared is non-negative for weighting
+          max 0.0f rSquared)
+
+      // Normalize weights so they sum to 1
+      let totalPerformance = performances |> List.sum |> float
+
+      if totalPerformance = 0.0 then
+        // If all models have 0 R-squared, use equal weights
+        models |> List.map (fun _ -> 1.0 / float models.Length)
+      else
+        performances |> List.map (fun p -> float p / totalPerformance)
+
+  /// <summary>
+  /// Trains an ensemble model using all available algorithms.
+  /// Attempts to train all algorithms but skips those that fail.
+  /// </summary>
+  /// <param name="trainingRecords">Array of training data records.</param>
+  /// <param name="config">Configuration containing algorithm parameters.</param>
+  /// <returns>Result containing trained ensemble model or error.</returns>
+  let trainEnsembleModel
+    (trainingRecords : GoldDataRecord[])
+    (config : GoldMachineConfig)
+    =
+    try
+      let mlContext = createMLContext ()
+      let algorithms = getAllAlgorithms config
+
+      let modelsAndAlgorithms =
+        algorithms
+        |> List.choose (fun alg ->
+          try
+            let model = trainModel mlContext trainingRecords alg config
+
+            match validateModel model with
+            | Ok validModel -> Some (alg, validModel)
+            | Error err ->
+              printfn $"Warning: Failed to train {alg}: {err}"
+              None
+          with ex ->
+            printfn $"Warning: Exception training {alg}: {ex.Message}"
+            None)
+
+      if modelsAndAlgorithms.Length = 0 then
+        Error (
+          ModelTrainingFailed "No algorithms could be trained successfully"
+        )
+      else
+        let models = modelsAndAlgorithms |> List.map snd
+
+        // Calculate weights based on cross-validation performance
+        let weights = calculateEnsembleWeights mlContext trainingRecords models
+
+        Ok
+          { Models = models
+            Weights = weights
+            MLContext = mlContext }
+    with ex ->
+      Error (ModelTrainingFailed $"Ensemble training failed: {ex.Message}")
+
+  /// <summary>
+  /// Makes a prediction using the ensemble model with weighted averaging.
+  /// </summary>
+  /// <param name="ensemble">The trained ensemble model.</param>
+  /// <param name="input">The prediction input containing features.</param>
+  /// <returns>The weighted average predicted price.</returns>
+  let predictWithEnsemble (ensemble : EnsembleModel) (input : PredictionInput) =
+    let modelsLen = List.length ensemble.Models
+    let weightsLen = List.length ensemble.Weights
+
+    if modelsLen <> weightsLen then
+      failwith "Model and weight counts don't match"
+
+    let weightedPredictions =
+      List.zip ensemble.Models ensemble.Weights
+      |> List.map (fun (model, weight) ->
+        let prediction = predict model input |> float
+        prediction * weight)
+
+    let totalWeight = List.sum ensemble.Weights
+
+    if totalWeight = 0.0 then
+      0.0f
+    else
+      float32 (List.sum weightedPredictions / totalWeight)
+
+  /// <summary>
+  /// Makes batch predictions using the ensemble model.
+  /// </summary>
+  /// <param name="ensemble">The trained ensemble model.</param>
+  /// <param name="inputs">Sequence of prediction inputs.</param>
+  /// <returns>Array of weighted average predicted prices.</returns>
+  let predictBatchWithEnsemble
+    (ensemble : EnsembleModel)
+    (inputs : PredictionInput seq)
+    =
+    inputs |> Seq.map (predictWithEnsemble ensemble) |> Seq.toArray
+
+  /// <summary>
+  /// Evaluates the ensemble model's performance.
+  /// </summary>
+  /// <param name="ensemble">The trained ensemble model.</param>
+  /// <param name="testInputs">Test input data for prediction.</param>
+  /// <param name="actualPrices">Actual prices for comparison.</param>
+  /// <returns>EnsembleEvaluation containing performance metrics.</returns>
+  let evaluateEnsembleModel
+    (ensemble : EnsembleModel)
+    (testInputs : PredictionInput seq)
+    (actualPrices : float32[])
+    =
+    let predictions = predictBatchWithEnsemble ensemble testInputs
+    let ensembleRSquared = calculateRSquared actualPrices predictions
+    let ensembleMAE = calculateMAE actualPrices predictions
+    let ensembleRMSE = calculateRMSE actualPrices predictions
+    let ensembleMAPE = calculateMAPE actualPrices predictions
+
+    // Evaluate individual models for comparison
+    let individualEvaluations =
+      ensemble.Models
+      |> List.map (fun model ->
+        let modelPredictions = predictBatch model testInputs
+        let evaluation = evaluateModel model testInputs actualPrices
+        model.Algorithm, evaluation)
+
+    { IndividualEvaluations = individualEvaluations
+      EnsembleRSquared = ensembleRSquared
+      EnsembleMAE = ensembleMAE
+      EnsembleRMSE = ensembleRMSE
+      EnsembleMAPE = ensembleMAPE
+      SharpeRatio = 0.0 } // Sharpe ratio calculated separately in trading strategy
+
+  /// <summary>
+  /// Validates that an ensemble model is ready for prediction.
+  /// </summary>
+  /// <param name="ensemble">The ensemble model to validate.</param>
+  /// <returns>Result indicating validation success or error.</returns>
+  let validateEnsembleModel (ensemble : EnsembleModel) =
+    try
+      let testInput =
+        { MA3 = 1.0f
+          MA9 = 1.0f }
+
+      predictWithEnsemble ensemble testInput |> ignore
+
+      let modelsLength = List.length ensemble.Models
+      let weightsLength = List.length ensemble.Weights
+
+      if modelsLength <> weightsLength then
+        Error (
+          ModelTrainingFailed
+            "Ensemble model validation failed: mismatched model and weight counts"
+        )
+      elif modelsLength = 0 then
+        Error (
+          ModelTrainingFailed
+            "Ensemble model validation failed: no models in ensemble"
+        )
+      elif ensemble.Weights |> List.exists (fun w -> w < 0.0) then
+        Error (
+          ModelTrainingFailed
+            "Ensemble model validation failed: negative weights detected"
+        )
+      else
+        Ok ensemble
+    with ex ->
+      Error (
+        ModelTrainingFailed $"Ensemble model validation failed: {ex.Message}"
+      )
