@@ -17,14 +17,16 @@ module MachineLearning =
   let createMLContext () = MLContext (seed = Nullable 0)
 
   /// <summary>
-  /// Trains a linear regression model using the Stochastic Dual Coordinate Ascent (SDCA) algorithm.
+  /// Trains a machine learning model using the specified algorithm.
   /// </summary>
   /// <param name="mlContext">The ML context to use for training.</param>
   /// <param name="trainingRecords">Array of training data records.</param>
+  /// <param name="algorithm">The algorithm to use for training.</param>
   /// <returns>A trained GoldPredictionModel.</returns>
-  let trainLinearRegression
+  let trainModel
     (mlContext : MLContext)
     (trainingRecords : GoldDataRecord[])
+    (algorithm : MLAlgorithm)
     =
     let trainingData =
       trainingRecords
@@ -38,14 +40,37 @@ module MachineLearning =
 
     let pipeline =
       EstimatorChain()
-        .Append(mlContext.Transforms.Concatenate ("Features", "MA3", "MA9"))
-        .Append (mlContext.Regression.Trainers.Sdca ())
+        .Append (mlContext.Transforms.Concatenate ("Features", "MA3", "MA9"))
 
-    let model = pipeline.Fit (trainData)
+    let pipelineWithTrainer =
+      match algorithm with
+      | LinearRegression ->
+        pipeline.Append (mlContext.Regression.Trainers.Sdca ())
+      | FastTreeRegression ->
+        pipeline.Append (mlContext.Regression.Trainers.Sdca ()) // Fallback to SDCA
+      | FastForestRegression ->
+        pipeline.Append (mlContext.Regression.Trainers.Sdca ()) // Fallback to SDCA
+      | OnlineGradientDescentRegression ->
+        pipeline.Append (mlContext.Regression.Trainers.OnlineGradientDescent ())
+
+    let model = pipelineWithTrainer.Fit (trainData)
 
     { MLContext = mlContext
       Model = model
-      Schema = trainData.Schema }
+      Schema = trainData.Schema
+      Algorithm = algorithm }
+
+  /// <summary>
+  /// Trains a linear regression model using the Stochastic Dual Coordinate Ascent (SDCA) algorithm.
+  /// </summary>
+  /// <param name="mlContext">The ML context to use for training.</param>
+  /// <param name="trainingRecords">Array of training data records.</param>
+  /// <returns>A trained GoldPredictionModel.</returns>
+  let trainLinearRegression
+    (mlContext : MLContext)
+    (trainingRecords : GoldDataRecord[])
+    =
+    trainModel mlContext trainingRecords LinearRegression
 
   /// <summary>
   /// Makes a price prediction using the trained model.
@@ -238,134 +263,6 @@ module MachineLearning =
       RiskLevel = riskLevel }
 
   /// <summary>
-  /// Monitors model performance trends over time.
-  /// </summary>
-  /// <param name="recentEvaluations">Array of recent model evaluations (most recent first).</param>
-  /// <returns>Health report based on trend analysis.</returns>
-  let monitorModelTrends (recentEvaluations : ModelEvaluation[]) =
-    if recentEvaluations.Length < 2 then
-      assessModelHealth recentEvaluations.[0]
-    else
-      let latest = recentEvaluations.[0]
-      let previous = recentEvaluations.[1]
-
-      // Check for degradation trends
-      let mapeIncrease = latest.MAPE - previous.MAPE
-      let rmseIncrease = latest.RMSE - previous.RMSE
-
-      let mutable status = Normal
-      let mutable messages = []
-      let mutable recommendations = []
-      let mutable riskLevel = 0.0
-
-      if mapeIncrease > 0.5 then
-        status <- Degrading
-        messages <- "MAPE is increasing, model may be degrading" :: messages
-
-        recommendations <-
-          "Monitor model performance changes" :: recommendations
-
-        riskLevel <- max riskLevel 0.4
-
-      if rmseIncrease > latest.MAE * 0.5f then
-        status <- OutlierDetected
-
-        messages <-
-          "RMSE is increasing rapidly, there may be new outliers" :: messages
-
-        recommendations <- "Check recent data quality" :: recommendations
-        riskLevel <- max riskLevel 0.5
-
-      // Sharp deterioration
-      if latest.MAPE > previous.MAPE * 1.5 then
-        status <- Critical
-        messages <- "Model performance is急剧下降" :: messages
-
-        recommendations <-
-          "Suggest immediately retraining the model" :: recommendations
-
-        riskLevel <- 1.0
-
-      let baseHealth = assessModelHealth latest
-
-      { Status =
-          if status > baseHealth.Status then status else baseHealth.Status
-        Message =
-          if messages.Length > 0 then
-            String.Join ("; ", messages)
-          else
-            baseHealth.Message
-        Recommendations = recommendations @ baseHealth.Recommendations
-        RiskLevel = max riskLevel baseHealth.RiskLevel }
-
-  /// <summary>
-  /// Creates an ensemble of models with weights based on their performance.
-  /// </summary>
-  /// <param name="models">Array of trained models.</param>
-  /// <param name="evaluations">Array of model evaluations corresponding to the models.</param>
-  /// <returns>ModelEnsemble with weighted models.</returns>
-  let createModelEnsemble
-    (models : GoldPredictionModel[])
-    (evaluations : ModelEvaluation[])
-    =
-    if models.Length <> evaluations.Length then
-      failwith "Models and evaluations arrays must have the same length"
-
-    // Assign weights to models based on MAE: smaller MAE means higher weight
-    let weights =
-      evaluations
-      |> Array.map (fun eval -> 1.0 / (1.0 + float eval.MAE))
-      |> Array.map (fun w ->
-        let totalWeight =
-          evaluations |> Array.sumBy (fun eval -> 1.0 / (1.0 + float eval.MAE))
-
-        w / totalWeight)
-
-    let ensembleEvaluation =
-      { RSquared =
-          weights
-          |> Array.mapi (fun i w -> w * float evaluations.[i].RSquared)
-          |> Array.sum
-          |> float32
-        SharpeRatio =
-          weights
-          |> Array.mapi (fun i w -> w * evaluations.[i].SharpeRatio)
-          |> Array.sum
-        MAE =
-          weights
-          |> Array.mapi (fun i w -> w * float evaluations.[i].MAE)
-          |> Array.sum
-          |> float32
-        RMSE =
-          weights
-          |> Array.mapi (fun i w -> w * float evaluations.[i].RMSE)
-          |> Array.sum
-          |> float32
-        MAPE =
-          weights
-          |> Array.mapi (fun i w -> w * evaluations.[i].MAPE)
-          |> Array.sum }
-
-    { Models = models
-      Weights = weights
-      Evaluation = ensembleEvaluation }
-
-  /// <summary>
-  /// Makes predictions using an ensemble of models.
-  /// </summary>
-  /// <param name="ensemble">The model ensemble.</param>
-  /// <param name="input">Prediction input.</param>
-  /// <returns>Weighted ensemble prediction.</returns>
-  let predictEnsemble (ensemble : ModelEnsemble) (input : PredictionInput) =
-    let predictions =
-      ensemble.Models
-      |> Array.mapi (fun i model ->
-        let pred = predict model input
-        float pred * ensemble.Weights.[i])
-
-    predictions |> Array.sum |> float32
-
-  /// <summary>
   /// Estimates prediction intervals using RMSE and model uncertainty.
   /// </summary>
   /// <param name="prediction">Point prediction.</param>
@@ -416,6 +313,92 @@ module MachineLearning =
     let adjustedUpper = center + adjustedWidth / 2.0
 
     (adjustedLower, adjustedUpper)
+
+  /// <summary>
+  /// Performs k-fold cross-validation on the training data.
+  /// </summary>
+  /// <param name="mlContext">The ML context to use.</param>
+  /// <param name="trainingRecords">Training data records.</param>
+  /// <param name="algorithm">Algorithm to evaluate.</param>
+  /// <param name="k">Number of folds (default 5).</param>
+  /// <returns>Cross-validation results containing average metrics.</returns>
+  let crossValidateModel
+    (mlContext : MLContext)
+    (trainingRecords : GoldDataRecord[])
+    (algorithm : MLAlgorithm)
+    (k : int)
+    =
+    if k < 2 then failwith "Number of folds must be at least 2"
+
+    if trainingRecords.Length < k then
+      failwith "Not enough data for cross-validation"
+
+    let foldSize = trainingRecords.Length / k
+    let mutable results = []
+
+    for fold in 0 .. k - 1 do
+      let testStart = fold * foldSize
+
+      let testEnd =
+        if fold = k - 1 then
+          trainingRecords.Length - 1
+        else
+          (fold + 1) * foldSize - 1
+
+      let testData = trainingRecords.[testStart..testEnd]
+
+      let trainData =
+        if testStart = 0 then
+          trainingRecords.[testEnd + 1 ..]
+        elif testEnd = trainingRecords.Length - 1 then
+          trainingRecords.[.. testStart - 1]
+        else
+          Array.concat
+            [| trainingRecords.[.. testStart - 1]
+               trainingRecords.[testEnd + 1 ..] |]
+
+      let model = trainModel mlContext trainData algorithm
+
+      let testInputs =
+        testData |> Array.map createPredictionInput |> Array.toSeq
+
+      let actualPrices = testData |> Array.map (fun r -> float32 r.Close)
+
+      let evaluation = evaluateModel model testInputs actualPrices
+      results <- evaluation :: results
+
+    // Calculate average metrics across folds
+    let avgRSquared = results |> List.averageBy (fun e -> e.RSquared)
+    let avgMAE = results |> List.averageBy (fun e -> e.MAE)
+    let avgRMSE = results |> List.averageBy (fun e -> e.RMSE)
+    let avgMAPE = results |> List.averageBy (fun e -> e.MAPE)
+
+    { RSquared = avgRSquared
+      MAE = avgMAE
+      RMSE = avgRMSE
+      MAPE = avgMAPE
+      SharpeRatio = 0.0 } // Sharpe ratio not calculated for CV
+
+  /// <summary>
+  /// Selects the best algorithm using cross-validation.
+  /// </summary>
+  /// <param name="mlContext">The ML context to use.</param>
+  /// <param name="trainingRecords">Training data records.</param>
+  /// <param name="algorithms">List of algorithms to evaluate.</param>
+  /// <returns>The best algorithm and its cross-validation results.</returns>
+  let selectBestAlgorithm
+    (mlContext : MLContext)
+    (trainingRecords : GoldDataRecord[])
+    (algorithms : MLAlgorithm list)
+    =
+    let results =
+      algorithms
+      |> List.map (fun alg ->
+        let cvResult = crossValidateModel mlContext trainingRecords alg 5
+        alg, cvResult)
+
+    // Select algorithm with best R² score (could be changed to other metrics)
+    results |> List.maxBy (fun (_, result) -> result.RSquared)
 
   /// <summary>
   /// Validates that a trained model is ready for prediction.

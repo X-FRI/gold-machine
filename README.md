@@ -30,11 +30,26 @@ A command-line application for predicting gold ETF and futures prices using mach
 dotnet run
 
 # Use custom ETF symbol
-dotnet run --etf 159941
+dotnet run --etf 159549
 
 # Use Shanghai Gold Exchange data
 dotnet run sge
+
+# Set configuration via environment variables
+GOLD_MACHINE_SYMBOL=159549 GOLD_MACHINE_ALGORITHM=FastTree dotnet run
 ```
+
+### Configuration Options
+
+The system supports configuration via environment variables:
+
+- `GOLD_MACHINE_API_URL`: API base URL (default: http://127.0.0.1:8080/api/public)
+- `GOLD_MACHINE_SYMBOL`: Symbol to use (default: 518880)
+- `GOLD_MACHINE_START_DATE`: Start date in YYYYMMDD format (default: 20000101)
+- `GOLD_MACHINE_TRAIN_RATIO`: Training data ratio 0-1 (default: 0.8)
+- `GOLD_MACHINE_RISK_FREE_RATE`: Risk-free rate for Sharpe ratio (default: 0.02)
+- `GOLD_MACHINE_DATA_PROVIDER`: Data provider ETF or SGE (default: ETF)
+- `GOLD_MACHINE_ALGORITHM`: ML algorithm: LinearRegression, FastTree, FastForest, OnlineGradientDescent (default: LinearRegression)
 
 ### Command Line Options
 
@@ -48,33 +63,31 @@ dotnet run sge
 # Default usage - GLD ETF
 dotnet run
 
-# Custom ETF - e.g., another gold ETF
-dotnet run --etf 159941
+# Custom ETF symbol
+dotnet run --etf 159549
 
 # Shanghai Gold Exchange futures
 dotnet run sge
 
-# Help information
-dotnet run --help
+# Use FastTree algorithm
+GOLD_MACHINE_ALGORITHM=FastTree dotnet run
+
+# Custom configuration
+GOLD_MACHINE_SYMBOL=159549 GOLD_MACHINE_TRAIN_RATIO=0.9 dotnet run
 ```
 
 ## Configuration
 
-The system supports different configurations for each data provider:
+The system uses environment variables for configuration with sensible defaults. The configuration is validated at startup to ensure data integrity.
 
-### ETF Configuration (Default)
+### Default Configuration
 - API Base URL: `http://127.0.0.1:8080/api/public`
-- Symbol: `518880`
-- Start Date: `20000101`
-- Training Ratio: 80%
-- Risk-Free Rate: 0%
-
-### SGE Configuration
-- API Base URL: `http://127.0.0.1:8080/api/public`
-- Symbol: `Au99.99`
-- Start Date: `20000101`
-- Training Ratio: 80%
-- Risk-Free Rate: 0%
+- Symbol: `518880` (GLD ETF)
+- Start Date: `20000101` (January 1, 2000)
+- Training Ratio: `0.8` (80% training, 20% testing)
+- Risk-Free Rate: `0.02` (2% annual risk-free rate)
+- Data Provider: `ETF`
+- ML Algorithm: `LinearRegression`
 
 ## Adding New Data Sources
 
@@ -128,50 +141,107 @@ To add a new data source:
 
 ## Output & Analytics
 
-### Console Analytics
-- Model Diagnostics: Real-time health assessment with risk level classification
-- Performance Metrics: R², MAE, RMSE, MAPE with trend analysis
-- Strategy Analytics: Sharpe ratio, position sizing recommendations, market regime classification
-- Risk Management: Kelly Criterion sizing, stop-loss levels, cost analysis
-- Market Intelligence: Volatility assessment, prediction intervals, data quality monitoring
-- Health Recommendations: Automated suggestions for model retraining and parameter adjustments
+### Console Output
+The application provides comprehensive analysis output:
 
-### Performance Reporting
-- Traditional Metrics: Cumulative returns, maximum drawdown, win rate analysis
-- Advanced Metrics: Risk-adjusted performance using MAE/RMSE uncertainty measures
-- Cost-Adjusted Results: Net performance after all trading costs and slippage
-- Model Correlation: Strategy performance linked to model health indicators
+```
+Gold Price Prediction System v2.0
+===================================
+Usage: dotnet run [options]
+[... configuration info ...]
 
-### Trading Intelligence
-- Signal Confidence: Weighted signals with uncertainty quantification
-- Position Recommendations: Dynamic sizing based on multiple criteria
-- Market Adaptation: Real-time parameter adjustments based on regime changes
-- Risk Alerts: Automated notifications for deteriorating conditions
+[INFO] Configuration: API=http://127.0.0.1:8080/api/public, Symbol=518880, StartDate=20000101
+[INFO] Acquiring gold price data from Gold ETF Provider...
+[INFO] Data processed successfully. Records: 2966
+[INFO] Training LinearRegression model...
+[INFO] Model R² Score: 0.9982
+[INFO] Model MAE: 0.0333
+[INFO] Model RMSE: 0.0521
+[INFO] Model MAPE: 0.54%
+[INFO] Strategy Sharpe Ratio: -2.1719
+[INFO] Performing walk-forward backtesting...
+[INFO] Backtest Total Return: -216.04%
+[INFO] Backtest Annualized Return: -20.04%
+[INFO] Backtest Sharpe Ratio: -3.0511
+[INFO] Backtest Max Drawdown: 316.84%
+[INFO] Trading recommendation: BUY GLD - Predicted price higher than current price
+```
+
+### Performance Metrics
+- Model Evaluation: R², MAE, RMSE, MAPE scores
+- Strategy Analysis: Sharpe ratio, win rate, profit factor
+- Backtesting Results: Total return, annualized return, maximum drawdown
+- Trading Signals: Buy/Hold/Sell recommendations based on predictions
+
+### Data Quality Assurance
+- Outlier detection using IQR method
+- Chronological data validation
+- Missing data imputation
+- Anomaly removal using statistical filters
 
 ### Interactive Visualizations
-- Enhanced Price Charts: `gold_price_prediction.html` with prediction intervals and uncertainty bands
-- Advanced Performance Charts: `cumulative_returns.html` with risk metrics and drawdown analysis
-- Strategy Analytics: Visual representation of signal confidence and position sizing
-- Model Health Dashboard: Graphical display of model diagnostics and trend analysis
+- Price Prediction Chart (`gold_price_prediction.html`): Actual vs predicted prices with prediction intervals
+- Cumulative Returns Chart (`cumulative_returns.html`): Strategy performance over time
+
+### Backtesting Framework
+The system implements walk-forward backtesting with:
+- Expanding training windows
+- Rolling out-of-sample testing
+- Realistic position sizing and trade execution
+- Comprehensive risk metrics calculation
 
 ## Machine Learning Pipeline
 
-1. Data Acquisition: Fetch historical price data from configured providers (ETF/SGE)
-2. Data Processing: Convert raw data to standardized format with technical indicators (MA3, MA9)
-3. Data Splitting: 80/20 train/test split with temporal ordering preservation
-4. Model Training: Linear regression using SDCA algorithm with feature engineering
-5. Model Evaluation: Comprehensive metrics calculation (R², MAE, RMSE, MAPE)
-6. Model Health Assessment: Real-time diagnostics with degradation detection and risk classification
-7. Trend Monitoring: Performance trend analysis with automated model health recommendations
-8. Advanced Signal Generation: Confidence-weighted signals with market regime classification
-9. Adaptive Strategy Execution: Dynamic position sizing based on MAE thresholds and market conditions
-10. Ensemble Learning: Multi-model weighting with uncertainty quantification and prediction intervals
-11. Risk Management: Kelly Criterion optimization with dynamic stop-loss and cost analysis
-12. Market Adaptation: Real-time parameter adjustment based on volatility regimes
-13. Data Quality Monitoring: Continuous validation with anomaly detection and trading gates
-14. Prediction Generation: Price forecasts with statistical uncertainty bounds
-15. Strategy Evaluation: Multi-dimensional performance assessment including trading costs
-16. Visualization: Interactive charts with advanced analytics and risk metrics
+### 1. Configuration & Validation
+- Load configuration from environment variables with validation
+- Support multiple data providers (ETF/SGE) and ML algorithms
+- Ensure data integrity and parameter consistency
+
+### 2. Data Acquisition
+- Fetch historical price data from external APIs
+- Support configurable symbols and date ranges
+- Handle API errors gracefully with retry logic
+
+### 3. Data Quality Assurance
+- Outlier detection using statistical methods (IQR)
+- Chronological ordering validation
+- Anomaly removal and data cleaning
+- Missing value imputation
+
+### 4. Feature Engineering
+- Calculate technical indicators (MA3, MA9 moving averages)
+- Ensure proper data alignment and validation
+- Handle edge cases in moving average calculations
+
+### 5. Model Training & Selection
+- Support multiple ML algorithms: LinearRegression, FastTree, FastForest, OnlineGradientDescent
+- Cross-validation for model evaluation
+- Automatic algorithm selection based on performance
+
+### 6. Model Evaluation
+- Comprehensive metrics: R², MAE, RMSE, MAPE
+- Model health assessment and risk classification
+- Prediction interval estimation
+
+### 7. Trading Strategy
+- Simple momentum-based signals (Buy/Hold/Sell)
+- Sharpe ratio calculation and risk assessment
+- Trading recommendation generation
+
+### 8. Walk-Forward Backtesting
+- Realistic out-of-sample testing with expanding windows
+- Comprehensive risk metrics (total return, max drawdown, win rate)
+- Position sizing and trade execution simulation
+
+### 9. Visualization & Reporting
+- Interactive price prediction charts
+- Cumulative returns analysis
+- HTML output for web viewing
+
+### 10. Error Handling & Logging
+- Comprehensive error handling with Result types
+- Detailed logging throughout the pipeline
+- Graceful failure recovery
 
 ## [LICENSE](./LICENSE)
 

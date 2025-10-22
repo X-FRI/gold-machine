@@ -10,18 +10,33 @@ open MathNet.Numerics.Statistics
 module DataProcessing =
 
   /// <summary>
+  /// Simple logging function for data processing operations.
+  /// </summary>
+  let logInfo (message : string) =
+    printfn
+      "[%s] INFO: %s"
+      (DateTime.Now.ToString ("yyyy-MM-dd HH:mm:ss"))
+      message
+
+  /// <summary>
   /// Calculates simple moving average for the given window size.
   /// </summary>
   /// <param name="values">Array of price values.</param>
   /// <param name="windowSize">Size of the moving average window.</param>
-  /// <returns>Array of moving average values.</returns>
+  /// <returns>Result containing array of moving average values or error.</returns>
   let calculateMovingAverage (values : float[]) (windowSize : int) =
-    if values.Length < windowSize then
-      [||]
+    if windowSize <= 0 then
+      Error (DataAcquisitionFailed "Window size must be positive")
+    elif values.Length < windowSize then
+      Error (
+        DataAcquisitionFailed
+          $"Insufficient data: {values.Length} values, minimum {windowSize} required"
+      )
     else
-      [| for i in windowSize - 1 .. values.Length - 1 do
-           let window = values.[i - windowSize + 1 .. i]
-           yield window |> Array.average |]
+      Ok
+        [| for i in windowSize - 1 .. values.Length - 1 do
+             let window = values.[i - windowSize + 1 .. i]
+             yield window |> Array.average |]
 
   /// <summary>
   /// Calculates percentage changes between consecutive price values.
@@ -99,32 +114,48 @@ module DataProcessing =
   /// Aligns the data to ensure all records have valid moving average values.
   /// </summary>
   /// <param name="records">Array of gold data records with raw prices.</param>
-  /// <returns>Array of processed records with calculated moving averages.</returns>
+  /// <returns>Result containing array of processed records or error.</returns>
   let processGoldData (records : GoldDataRecord[]) =
-    let closeValues = records |> Array.map (fun r -> r.Close)
-    let ma3Values = calculateMovingAverage closeValues 3 |> Array.map float32
-    let ma9Values = calculateMovingAverage closeValues 9 |> Array.map float32
+    if records.Length < 9 then
+      Error (
+        DataAcquisitionFailed
+          $"Insufficient data for moving averages: {records.Length} records, minimum 9 required"
+      )
+    else
+      let closeValues = records |> Array.map (fun r -> r.Close)
 
-    // Align data: moving averages reduce the number of data points
-    let offset3 = closeValues.Length - ma3Values.Length
-    let offset9 = closeValues.Length - ma9Values.Length
-    let maxOffset = max offset3 offset9
-    let alignedLength = closeValues.Length - maxOffset
+      match
+        calculateMovingAverage closeValues 3,
+        calculateMovingAverage closeValues 9
+      with
+      | Ok ma3Values, Ok ma9Values ->
+        let ma3Float32 = ma3Values |> Array.map float32
+        let ma9Float32 = ma9Values |> Array.map float32
 
-    Array.init alignedLength (fun i ->
-      let dataIndex = i + maxOffset
+        // Align data: moving averages reduce the number of data points
+        let offset3 = closeValues.Length - ma3Float32.Length
+        let offset9 = closeValues.Length - ma9Float32.Length
+        let maxOffset = max offset3 offset9
+        let alignedLength = closeValues.Length - maxOffset
 
-      { records.[dataIndex] with
-          MA3 =
-            if dataIndex >= offset3 then
-              ma3Values.[dataIndex - offset3]
-            else
-              0.0f
-          MA9 =
-            if dataIndex >= offset9 then
-              ma9Values.[dataIndex - offset9]
-            else
-              0.0f })
+        Ok (
+          Array.init alignedLength (fun i ->
+            let dataIndex = i + maxOffset
+
+            { records.[dataIndex] with
+                MA3 =
+                  if dataIndex >= offset3 then
+                    ma3Float32.[dataIndex - offset3]
+                  else
+                    0.0f
+                MA9 =
+                  if dataIndex >= offset9 then
+                    ma9Float32.[dataIndex - offset9]
+                  else
+                    0.0f })
+        )
+      | Error err, _ -> Error err
+      | _, Error err -> Error err
 
   /// <summary>
   /// Splits data into training and testing sets based on the specified ratio.
@@ -156,3 +187,129 @@ module DataProcessing =
         Error (DataAcquisitionFailed "Array lengths do not match")
       else
         Ok firstLength
+
+  /// <summary>
+  /// Performs comprehensive data quality checks on gold price data.
+  /// </summary>
+  /// <param name="records">Array of gold data records to validate.</param>
+  /// <returns>Result containing validated records or error with details.</returns>
+  let validateDataQuality (records : GoldDataRecord[]) =
+    if records.Length = 0 then
+      Error (DataAcquisitionFailed "No data records provided")
+    else
+      let prices = records |> Array.map (fun r -> r.Close)
+
+      // Check for invalid prices
+      let invalidPrices =
+        prices
+        |> Array.filter (fun p ->
+          p <= 0.0 || System.Double.IsNaN p || System.Double.IsInfinity p)
+
+      if invalidPrices.Length > 0 then
+        Error (
+          DataAcquisitionFailed
+            $"Found {invalidPrices.Length} invalid price values"
+        )
+      else
+        // Check for price outliers using IQR method
+        let sortedPrices = prices |> Array.sort
+        let q1 = sortedPrices.[int (float prices.Length / 4.0)]
+        let q3 = sortedPrices.[int (float prices.Length * 3.0 / 4.0)]
+        let iqr = q3 - q1
+        let lowerBound = q1 - 1.5 * iqr
+        let upperBound = q3 + 1.5 * iqr
+
+        let outliers =
+          prices |> Array.filter (fun p -> p < lowerBound || p > upperBound)
+
+        if outliers.Length > int (float prices.Length * 0.1) then // More than 10% outliers
+          Error (
+            DataAcquisitionFailed
+              $"Too many price outliers detected: {outliers.Length} out of {prices.Length}"
+          )
+        else
+          // Check for chronological order
+          let datesInOrder =
+            records
+            |> Array.pairwise
+            |> Array.forall (fun (a, b) -> a.Date <= b.Date)
+
+          if not datesInOrder then
+            Error (
+              DataAcquisitionFailed
+                "Data records are not in chronological order"
+            )
+          else
+            // Check for duplicate dates
+            let uniqueDates =
+              records |> Array.map (fun r -> r.Date) |> Array.distinct
+
+            if uniqueDates.Length < records.Length then
+              Error (DataAcquisitionFailed "Duplicate dates found in data")
+            else
+              Ok records
+
+  /// <summary>
+  /// Detects and removes data anomalies using statistical methods.
+  /// </summary>
+  /// <param name="records">Array of gold data records.</param>
+  /// <returns>Result containing cleaned records or error.</returns>
+  let removeAnomalies (records : GoldDataRecord[]) =
+    if records.Length < 10 then
+      Ok records // Not enough data for anomaly detection
+    else
+      let prices = records |> Array.map (fun r -> r.Close)
+
+      // Simple moving median filter for smoothing
+      let windowSize = min 5 (prices.Length / 3)
+
+      let smoothedPrices =
+        Array.init prices.Length (fun i ->
+          let start = max 0 (i - windowSize / 2)
+          let endIdx = min (prices.Length - 1) (i + windowSize / 2)
+          let window = prices.[start..endIdx]
+          let sorted = Array.sort window
+          sorted.[int (float window.Length / 2.0)] // Median
+        )
+
+      // Calculate residuals
+      let residuals =
+        Array.zip prices smoothedPrices
+        |> Array.map (fun (actual, smoothed) -> abs (actual - smoothed))
+
+      // Remove points with residuals > 3 * median absolute deviation
+      let medianResidual =
+        Array.sort residuals |> fun arr -> arr.[arr.Length / 2]
+
+      let threshold = 3.0 * medianResidual
+
+      let filteredRecords =
+        Array.zip records residuals
+        |> Array.filter (fun (_, residual) -> residual <= threshold)
+        |> Array.map fst
+
+      if filteredRecords.Length < int (float records.Length * 0.8) then // Removed more than 20%
+        Error (
+          DataAcquisitionFailed
+            $"Too many anomalies detected, removed {records.Length - filteredRecords.Length} records"
+        )
+      else
+        logInfo
+          $"Removed {records.Length - filteredRecords.Length} anomalous data points"
+
+        Ok filteredRecords
+
+  /// <summary>
+  /// Performs data imputation for missing values using interpolation.
+  /// </summary>
+  /// <param name="records">Array of gold data records.</param>
+  /// <returns>Result containing imputed records or error.</returns>
+  let imputeMissingValues (records : GoldDataRecord[]) =
+    // For now, just validate that we don't have missing values
+    // In a real system, you might interpolate missing prices
+    let hasMissing = records |> Array.exists (fun r -> r.Close = 0.0)
+
+    if hasMissing then
+      Error (DataAcquisitionFailed "Missing values detected in price data")
+    else
+      Ok records

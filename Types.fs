@@ -36,13 +36,23 @@ type TrainingData =
     Label : float32 }
 
 /// <summary>
+/// Supported machine learning algorithms for price prediction.
+/// </summary>
+type MLAlgorithm =
+  | LinearRegression
+  | FastTreeRegression
+  | FastForestRegression
+  | OnlineGradientDescentRegression
+
+/// <summary>
 /// Represents a trained machine learning model for gold price prediction.
 /// Encapsulates the ML context, trained transformer, and data schema.
 /// </summary>
 type GoldPredictionModel =
   { MLContext : Microsoft.ML.MLContext
     Model : Microsoft.ML.ITransformer
-    Schema : Microsoft.ML.DataViewSchema }
+    Schema : Microsoft.ML.DataViewSchema
+    Algorithm : MLAlgorithm }
 
 /// <summary>
 /// Represents a single record of gold price data.
@@ -126,7 +136,8 @@ type GoldMachineConfig =
     StartDate : string
     TrainRatio : float
     RiskFreeRate : float
-    DataProvider : DataProviderType }
+    DataProvider : DataProviderType
+    MLAlgorithm : MLAlgorithm }
 
 /// <summary>
 /// Abstract interface for data providers.
@@ -185,36 +196,3 @@ type ModelHealthReport =
     Message : string
     Recommendations : string list
     RiskLevel : float }
-
-/// <summary>
-/// Represents a confidence-weighted trading signal.
-/// </summary>
-type WeightedSignal =
-  { Signal : float32
-    Confidence : float
-    RiskAdjustedSignal : float32 }
-
-/// <summary>
-/// Represents position sizing recommendations.
-/// </summary>
-type PositionSizing =
-  { PositionSize : float
-    MaxDrawdown : float
-    KellyFraction : float }
-
-/// <summary>
-/// Represents market regime classification.
-/// </summary>
-type MarketRegime =
-  | LowVolatility
-  | NormalVolatility
-  | HighVolatility
-  | ExtremeVolatility
-
-/// <summary>
-/// Represents model ensemble with weights.
-/// </summary>
-type ModelEnsemble =
-  { Models : GoldPredictionModel[]
-    Weights : float[]
-    Evaluation : ModelEvaluation }
