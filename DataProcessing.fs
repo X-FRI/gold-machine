@@ -59,6 +59,14 @@ module DataProcessing =
       if stdDev = 0.0 then 0.0 else (meanReturn - riskFreeRate) / stdDev
 
   /// <summary>
+  /// Calculates the volatility (standard deviation) of a series of returns.
+  /// </summary>
+  /// <param name="returns">Array of periodic returns.</param>
+  /// <returns>The volatility (standard deviation) value.</returns>
+  let calculateVolatility (returns : float[]) =
+    if returns.Length = 0 then 0.0 else Statistics.StandardDeviation (returns)
+
+  /// <summary>
   /// Converts raw data source to standardized GoldDataRecord array.
   /// Handles different data formats from various providers.
   /// </summary>

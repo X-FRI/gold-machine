@@ -167,3 +167,54 @@ type ModelEvaluation =
 /// Values: 1.0 for buy signal, 0.0 for hold.
 /// </summary>
 type TradingSignal = float
+
+/// <summary>
+/// Represents different health statuses for model evaluation.
+/// </summary>
+type ModelHealthStatus =
+  | Normal
+  | Degrading
+  | OutlierDetected
+  | Critical
+
+/// <summary>
+/// Represents model health assessment results.
+/// </summary>
+type ModelHealthReport =
+  { Status : ModelHealthStatus
+    Message : string
+    Recommendations : string list
+    RiskLevel : float }
+
+/// <summary>
+/// Represents a confidence-weighted trading signal.
+/// </summary>
+type WeightedSignal =
+  { Signal : float32
+    Confidence : float
+    RiskAdjustedSignal : float32 }
+
+/// <summary>
+/// Represents position sizing recommendations.
+/// </summary>
+type PositionSizing =
+  { PositionSize : float
+    MaxDrawdown : float
+    KellyFraction : float }
+
+/// <summary>
+/// Represents market regime classification.
+/// </summary>
+type MarketRegime =
+  | LowVolatility
+  | NormalVolatility
+  | HighVolatility
+  | ExtremeVolatility
+
+/// <summary>
+/// Represents model ensemble with weights.
+/// </summary>
+type ModelEnsemble =
+  { Models : GoldPredictionModel[]
+    Weights : float[]
+    Evaluation : ModelEvaluation }

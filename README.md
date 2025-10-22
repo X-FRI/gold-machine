@@ -101,37 +101,52 @@ To add a new data source:
    let getNewConfig () = // New configuration function
    ```
 
-## Output
+## Output & Analytics
 
-The system generates:
-- Console logs with detailed progress information
-- Performance metrics (R-squared, Sharpe ratio)
-- Trading recommendations for the latest data
-- Interactive HTML charts:
-  - `gold_price_prediction.html`: Actual vs predicted prices
-  - `cumulative_returns.html`: Strategy performance
+### Console Analytics
+- Model Diagnostics: Real-time health assessment with risk level classification
+- Performance Metrics: R², MAE, RMSE, MAPE with trend analysis
+- Strategy Analytics: Sharpe ratio, position sizing recommendations, market regime classification
+- Risk Management: Kelly Criterion sizing, stop-loss levels, cost analysis
+- Market Intelligence: Volatility assessment, prediction intervals, data quality monitoring
+- Health Recommendations: Automated suggestions for model retraining and parameter adjustments
+
+### Performance Reporting
+- Traditional Metrics: Cumulative returns, maximum drawdown, win rate analysis
+- Advanced Metrics: Risk-adjusted performance using MAE/RMSE uncertainty measures
+- Cost-Adjusted Results: Net performance after all trading costs and slippage
+- Model Correlation: Strategy performance linked to model health indicators
+
+### Trading Intelligence
+- Signal Confidence: Weighted signals with uncertainty quantification
+- Position Recommendations: Dynamic sizing based on multiple criteria
+- Market Adaptation: Real-time parameter adjustments based on regime changes
+- Risk Alerts: Automated notifications for deteriorating conditions
+
+### Interactive Visualizations
+- Enhanced Price Charts: `gold_price_prediction.html` with prediction intervals and uncertainty bands
+- Advanced Performance Charts: `cumulative_returns.html` with risk metrics and drawdown analysis
+- Strategy Analytics: Visual representation of signal confidence and position sizing
+- Model Health Dashboard: Graphical display of model diagnostics and trend analysis
 
 ## Machine Learning Pipeline
 
-1. Data Acquisition: Fetch historical price data from selected provider
-2. Data Processing: Convert raw data to standardized format and calculate technical indicators
-3. Data Splitting: 80/20 train/test split
-4. Model Training: Linear regression using SDCA algorithm
-5. Prediction: Generate price forecasts
-6. Strategy Evaluation: Calculate returns and risk metrics
-7. Visualization: Create performance charts
-
-## Trading Strategy
-
-The system implements a simple momentum strategy:
-- Buy Signal: When predicted price > actual price
-- Hold Signal: When predicted price ≤ actual price
-
-Strategy performance is evaluated using:
-- Cumulative returns
-- Sharpe ratio (risk-adjusted performance)
-- Win rate analysis
-
+1. Data Acquisition: Fetch historical price data from configured providers (ETF/SGE)
+2. Data Processing: Convert raw data to standardized format with technical indicators (MA3, MA9)
+3. Data Splitting: 80/20 train/test split with temporal ordering preservation
+4. Model Training: Linear regression using SDCA algorithm with feature engineering
+5. Model Evaluation: Comprehensive metrics calculation (R², MAE, RMSE, MAPE)
+6. Model Health Assessment: Real-time diagnostics with degradation detection and risk classification
+7. Trend Monitoring: Performance trend analysis with automated model health recommendations
+8. Advanced Signal Generation: Confidence-weighted signals with market regime classification
+9. Adaptive Strategy Execution: Dynamic position sizing based on MAE thresholds and market conditions
+10. Ensemble Learning: Multi-model weighting with uncertainty quantification and prediction intervals
+11. Risk Management: Kelly Criterion optimization with dynamic stop-loss and cost analysis
+12. Market Adaptation: Real-time parameter adjustment based on volatility regimes
+13. Data Quality Monitoring: Continuous validation with anomaly detection and trading gates
+14. Prediction Generation: Price forecasts with statistical uncertainty bounds
+15. Strategy Evaluation: Multi-dimensional performance assessment including trading costs
+16. Visualization: Interactive charts with advanced analytics and risk metrics
 
 ## [LICENSE](./LICENSE)
 

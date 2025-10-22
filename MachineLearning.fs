@@ -172,6 +172,252 @@ module MachineLearning =
       MA9 = record.MA9 }
 
   /// <summary>
+  /// Assesses the health of a model based on its evaluation metrics.
+  /// </summary>
+  /// <param name="evaluation">The model evaluation metrics.</param>
+  /// <returns>ModelHealthReport containing health assessment.</returns>
+  let assessModelHealth (evaluation : ModelEvaluation) =
+    let mutable status = Normal
+    let mutable messages = []
+    let mutable recommendations = []
+    let mutable riskLevel = 0.0
+
+    // MAPE-based degradation check
+    if evaluation.MAPE > 2.0 then
+      status <- Degrading
+      messages <- "Model degradation, need to retrain" :: messages
+      recommendations <- "Suggest retraining the model" :: recommendations
+
+      recommendations <-
+        "Check data quality and market conditions" :: recommendations
+
+      riskLevel <- max riskLevel 0.7
+
+    // RMSE vs MAE ratio check for outliers
+    if evaluation.RMSE > evaluation.MAE * 2.0f then
+      status <- OutlierDetected
+      messages <- "There are outliers, need to check data quality" :: messages
+      recommendations <- "Check for outliers in the data" :: recommendations
+
+      recommendations <-
+        "Consider using robust statistical methods" :: recommendations
+
+      riskLevel <- max riskLevel 0.6
+
+    // Additional checks
+    if evaluation.RSquared < 0.1f then
+      status <- Critical
+      messages <- "Model explanation power is too low" :: messages
+
+      recommendations <-
+        "Consider replacing the model algorithm or feature engineering"
+        :: recommendations
+
+      riskLevel <- max riskLevel 0.9
+
+    if evaluation.MAPE > 5.0 then
+      status <- Critical
+      messages <- "Prediction error is too high, need to stop using" :: messages
+
+      recommendations <-
+        "Stop using the model for trading decisions" :: recommendations
+
+      riskLevel <- 1.0
+
+    let finalStatus =
+      if status = Normal && messages.Length > 0 then Degrading else status
+
+    let message = String.Join ("; ", messages)
+
+    let defaultMessage =
+      if finalStatus = Normal then "Model performance is normal" else message
+
+    { Status = finalStatus
+      Message = defaultMessage
+      Recommendations = recommendations
+      RiskLevel = riskLevel }
+
+  /// <summary>
+  /// Monitors model performance trends over time.
+  /// </summary>
+  /// <param name="recentEvaluations">Array of recent model evaluations (most recent first).</param>
+  /// <returns>Health report based on trend analysis.</returns>
+  let monitorModelTrends (recentEvaluations : ModelEvaluation[]) =
+    if recentEvaluations.Length < 2 then
+      assessModelHealth recentEvaluations.[0]
+    else
+      let latest = recentEvaluations.[0]
+      let previous = recentEvaluations.[1]
+
+      // Check for degradation trends
+      let mapeIncrease = latest.MAPE - previous.MAPE
+      let rmseIncrease = latest.RMSE - previous.RMSE
+
+      let mutable status = Normal
+      let mutable messages = []
+      let mutable recommendations = []
+      let mutable riskLevel = 0.0
+
+      if mapeIncrease > 0.5 then
+        status <- Degrading
+        messages <- "MAPE is increasing, model may be degrading" :: messages
+
+        recommendations <-
+          "Monitor model performance changes" :: recommendations
+
+        riskLevel <- max riskLevel 0.4
+
+      if rmseIncrease > latest.MAE * 0.5f then
+        status <- OutlierDetected
+
+        messages <-
+          "RMSE is increasing rapidly, there may be new outliers" :: messages
+
+        recommendations <- "Check recent data quality" :: recommendations
+        riskLevel <- max riskLevel 0.5
+
+      // Sharp deterioration
+      if latest.MAPE > previous.MAPE * 1.5 then
+        status <- Critical
+        messages <- "Model performance is急剧下降" :: messages
+
+        recommendations <-
+          "Suggest immediately retraining the model" :: recommendations
+
+        riskLevel <- 1.0
+
+      let baseHealth = assessModelHealth latest
+
+      { Status =
+          if status > baseHealth.Status then status else baseHealth.Status
+        Message =
+          if messages.Length > 0 then
+            String.Join ("; ", messages)
+          else
+            baseHealth.Message
+        Recommendations = recommendations @ baseHealth.Recommendations
+        RiskLevel = max riskLevel baseHealth.RiskLevel }
+
+  /// <summary>
+  /// Creates an ensemble of models with weights based on their performance.
+  /// </summary>
+  /// <param name="models">Array of trained models.</param>
+  /// <param name="evaluations">Array of model evaluations corresponding to the models.</param>
+  /// <returns>ModelEnsemble with weighted models.</returns>
+  let createModelEnsemble
+    (models : GoldPredictionModel[])
+    (evaluations : ModelEvaluation[])
+    =
+    if models.Length <> evaluations.Length then
+      failwith "Models and evaluations arrays must have the same length"
+
+    // Assign weights to models based on MAE: smaller MAE means higher weight
+    let weights =
+      evaluations
+      |> Array.map (fun eval -> 1.0 / (1.0 + float eval.MAE))
+      |> Array.map (fun w ->
+        let totalWeight =
+          evaluations |> Array.sumBy (fun eval -> 1.0 / (1.0 + float eval.MAE))
+
+        w / totalWeight)
+
+    let ensembleEvaluation =
+      { RSquared =
+          weights
+          |> Array.mapi (fun i w -> w * float evaluations.[i].RSquared)
+          |> Array.sum
+          |> float32
+        SharpeRatio =
+          weights
+          |> Array.mapi (fun i w -> w * evaluations.[i].SharpeRatio)
+          |> Array.sum
+        MAE =
+          weights
+          |> Array.mapi (fun i w -> w * float evaluations.[i].MAE)
+          |> Array.sum
+          |> float32
+        RMSE =
+          weights
+          |> Array.mapi (fun i w -> w * float evaluations.[i].RMSE)
+          |> Array.sum
+          |> float32
+        MAPE =
+          weights
+          |> Array.mapi (fun i w -> w * evaluations.[i].MAPE)
+          |> Array.sum }
+
+    { Models = models
+      Weights = weights
+      Evaluation = ensembleEvaluation }
+
+  /// <summary>
+  /// Makes predictions using an ensemble of models.
+  /// </summary>
+  /// <param name="ensemble">The model ensemble.</param>
+  /// <param name="input">Prediction input.</param>
+  /// <returns>Weighted ensemble prediction.</returns>
+  let predictEnsemble (ensemble : ModelEnsemble) (input : PredictionInput) =
+    let predictions =
+      ensemble.Models
+      |> Array.mapi (fun i model ->
+        let pred = predict model input
+        float pred * ensemble.Weights.[i])
+
+    predictions |> Array.sum |> float32
+
+  /// <summary>
+  /// Estimates prediction intervals using RMSE and model uncertainty.
+  /// </summary>
+  /// <param name="prediction">Point prediction.</param>
+  /// <param name="rmse">Root Mean Squared Error of the model.</param>
+  /// <param name="confidenceLevel">Confidence level (e.g., 0.95 for 95%).</param>
+  /// <returns>Tuple of (lowerBound, upperBound) for the prediction interval.</returns>
+  let estimatePredictionInterval
+    (prediction : float32)
+    (rmse : float32)
+    (confidenceLevel : float)
+    =
+    // Use a simplified method: estimate based on RMSE standard deviation
+    // In practice, you can use t-distribution or empirical methods
+    let zScore =
+      match confidenceLevel with
+      | 0.95 -> 1.96
+      | 0.99 -> 2.576
+      | 0.90 -> 1.645
+      | _ -> 1.96 // Default 95% confidence interval
+
+    let margin = float rmse * zScore
+    let predFloat = float prediction
+
+    (predFloat - margin, predFloat + margin)
+
+  /// <summary>
+  /// Adjusts prediction intervals based on MAPE for different price ranges.
+  /// </summary>
+  /// <param name="baseInterval">Base prediction interval.</param>
+  /// <param name="mape">Mean Absolute Percentage Error.</param>
+  /// <param name="currentPrice">Current price for percentage adjustment.</param>
+  /// <returns>Adjusted prediction interval.</returns>
+  let adjustIntervalForPriceRange
+    (baseInterval : float * float)
+    (mape : float)
+    (currentPrice : float)
+    =
+    let percentageAdjustment = mape / 100.0
+    let priceBasedWidth = currentPrice * percentageAdjustment
+
+    let lower, upper = baseInterval
+    let center = (lower + upper) / 2.0
+    let baseWidth = upper - lower
+
+    // Adjust interval width based on MAPE
+    let adjustedWidth = max baseWidth priceBasedWidth
+    let adjustedLower = center - adjustedWidth / 2.0
+    let adjustedUpper = center + adjustedWidth / 2.0
+
+    (adjustedLower, adjustedUpper)
+
+  /// <summary>
   /// Validates that a trained model is ready for prediction.
   /// </summary>
   /// <param name="model">The model to validate.</param>

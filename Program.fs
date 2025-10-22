@@ -139,6 +139,20 @@ module Program =
                 logInfo (sprintf "Model RMSE: %.4f" evaluation.RMSE)
                 logInfo (sprintf "Model MAPE: %.2f%%" evaluation.MAPE)
 
+                // Model health assessment
+                logInfo "Performing model health assessment..."
+                let healthReport = MachineLearning.assessModelHealth evaluation
+                logInfo (sprintf "Model Health Status: %A" healthReport.Status)
+                logInfo (sprintf "Health Message: %s" healthReport.Message)
+                logInfo (sprintf "Risk Level: %.2f" healthReport.RiskLevel)
+
+                if healthReport.Recommendations.Length > 0 then
+                  logInfo "Recommendations:"
+
+                  healthReport.Recommendations
+                  |> List.iter (fun recommendation ->
+                    logInfo (sprintf "  - %s" recommendation))
+
                 // Generate predictions for test data
                 logInfo "Generating price predictions..."
 
@@ -146,7 +160,7 @@ module Program =
                   MachineLearning.predictBatch validatedModel testInputs
 
                 // Evaluate trading strategy
-                logInfo "Evaluating trading strategy..."
+                logInfo "Evaluating advanced trading strategy..."
 
                 let (signals, strategyReturns, cumulativeReturns, sharpeRatio) =
                   TradingStrategy.evaluateStrategy
@@ -155,6 +169,88 @@ module Program =
                     config
 
                 logInfo (sprintf "Strategy Sharpe Ratio: %.4f" sharpeRatio)
+
+                // Advanced signal generation and market environment analysis
+                logInfo "Generating advanced trading signals..."
+
+                let (weightedSignals, positionSizes, marketRegime) =
+                  TradingStrategy.generateAdvancedSignals
+                    predictions
+                    actualPrices
+                    evaluation
+
+                logInfo (sprintf "Market Regime: %A" marketRegime)
+
+                // Position sizing demonstration
+                logInfo "Calculating position sizing with Kelly Criterion..."
+                let expectedReturn = Array.average strategyReturns
+
+                let positionSizing =
+                  TradingStrategy.calculatePositionSizingMAE
+                    expectedReturn
+                    config.RiskFreeRate
+                    evaluation.MAE
+                    (Array.average (actualPrices |> Array.map float))
+
+                logInfo (
+                  sprintf
+                    "Kelly Position Size: %.2f%%"
+                    (positionSizing.PositionSize * 100.0)
+                )
+
+                logInfo (
+                  sprintf
+                    "Estimated Max Drawdown: %.2f%%"
+                    (positionSizing.MaxDrawdown * 100.0)
+                )
+
+                // Get latest data for prediction interval estimation
+                let latestTestData = testData.[testData.Length - 1]
+
+                // Prediction interval estimation
+                logInfo "Estimating prediction intervals..."
+                let latestPrediction = predictions.[predictions.Length - 1]
+
+                let predictionInterval =
+                  MachineLearning.estimatePredictionInterval
+                    latestPrediction
+                    evaluation.RMSE
+                    0.95
+
+                let adjustedInterval =
+                  MachineLearning.adjustIntervalForPriceRange
+                    predictionInterval
+                    evaluation.MAPE
+                    latestTestData.Close
+
+                logInfo (
+                  sprintf
+                    "95%% Prediction Interval: [%.2f, %.2f]"
+                    (fst predictionInterval)
+                    (snd predictionInterval)
+                )
+
+                logInfo (
+                  sprintf
+                    "MAPE-adjusted Interval: [%.2f, %.2f]"
+                    (fst adjustedInterval)
+                    (snd adjustedInterval)
+                )
+
+                // Data quality monitoring
+                logInfo "Monitoring data quality..."
+
+                let recentPrices =
+                  testData
+                  |> Array.map (fun r -> r.Close)
+                  |> Array.take (min 20 testData.Length)
+
+                let dataQuality =
+                  TradingStrategy.monitorDataQuality
+                    recentPrices
+                    evaluation.MAPE
+
+                logInfo (sprintf "Data Quality: %s" dataQuality.Message)
 
                 // Generate visualization charts
                 logInfo "Generating analysis charts..."
