@@ -3,6 +3,7 @@ namespace GoldMachine
 open Microsoft.ML
 open Microsoft.ML.Data
 open System
+open Microsoft.ML.Trainers
 
 /// <summary>
 /// Machine learning module for training and evaluating gold price prediction models.
@@ -38,22 +39,32 @@ module MachineLearning =
 
     let trainData = mlContext.Data.LoadFromEnumerable (trainingData)
 
-    let pipeline =
-      EstimatorChain()
-        .Append (mlContext.Transforms.Concatenate ("Features", "MA3", "MA9"))
-
-    let pipelineWithTrainer =
+    let model =
       match algorithm with
       | LinearRegression ->
-        pipeline.Append (mlContext.Regression.Trainers.Sdca ())
+        (EstimatorChain()
+          .Append(mlContext.Transforms.Concatenate ("Features", "MA3", "MA9"))
+          .Append(mlContext.Regression.Trainers.Sdca ())
+          .Fit (trainData))
+        :> ITransformer
       | FastTreeRegression ->
-        pipeline.Append (mlContext.Regression.Trainers.Sdca ()) // Fallback to SDCA
+        (EstimatorChain()
+          .Append(mlContext.Transforms.Concatenate ("Features", "MA3", "MA9"))
+          .Append(mlContext.Regression.Trainers.FastTree ())
+          .Fit (trainData))
+        :> ITransformer
       | FastForestRegression ->
-        pipeline.Append (mlContext.Regression.Trainers.Sdca ()) // Fallback to SDCA
+        (EstimatorChain()
+          .Append(mlContext.Transforms.Concatenate ("Features", "MA3", "MA9"))
+          .Append(mlContext.Regression.Trainers.FastForest ())
+          .Fit (trainData))
+        :> ITransformer
       | OnlineGradientDescentRegression ->
-        pipeline.Append (mlContext.Regression.Trainers.OnlineGradientDescent ())
-
-    let model = pipelineWithTrainer.Fit (trainData)
+        (EstimatorChain()
+          .Append(mlContext.Transforms.Concatenate ("Features", "MA3", "MA9"))
+          .Append(mlContext.Regression.Trainers.OnlineGradientDescent ())
+          .Fit (trainData))
+        :> ITransformer
 
     { MLContext = mlContext
       Model = model
