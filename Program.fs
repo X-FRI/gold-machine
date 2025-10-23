@@ -211,6 +211,47 @@ module Program =
                       let actualPricesAll =
                         processedRecords |> Array.map (fun r -> float r.Close)
 
+                      // Evaluate trading strategy with ensemble predictions
+                      logInfo "Evaluating simple trading strategy..."
+
+                      let (signals,
+                           strategyReturns,
+                           cumulativeReturns,
+                           sharpeRatio) =
+                        TradingStrategy.evaluateStrategy
+                          allPredictions
+                          (processedRecords |> Array.map (fun r -> float32 r.Close))
+                          config
+
+                      logInfo (sprintf "Strategy Sharpe Ratio: %.4f" sharpeRatio)
+
+                      // Perform walk-forward backtesting with ensemble
+                      logInfo "Performing walk-forward backtesting..."
+
+                      let backtestResult =
+                        TradingStrategy.performWalkForwardBacktest
+                          processedRecords
+                          100 // Initial training size
+                          20 // Test window size
+                          (fun data ->
+                            match MachineLearning.trainEnsembleModel data config with
+                            | Ok model -> model
+                            | Error err ->
+                              match err with
+                              | ModelTrainingFailed msg -> failwith $"Backtest training failed: {msg}"
+                              | _ -> failwith "Backtest training failed: Unknown error")
+                          (fun model record ->
+                            let input = MachineLearning.createPredictionInput record
+                            MachineLearning.predictWithEnsemble model input)
+                          config
+
+                      logInfo (sprintf "Backtest Total Return: %.2f%%" backtestResult.TotalReturn)
+                      logInfo (sprintf "Backtest Annualized Return: %.2f%%" backtestResult.AnnualizedReturn)
+                      logInfo (sprintf "Backtest Sharpe Ratio: %.4f" backtestResult.SharpeRatio)
+                      logInfo (sprintf "Backtest Max Drawdown: %.2f%%" backtestResult.MaxDrawdown)
+                      logInfo (sprintf "Backtest Win Rate: %.2f%%" (backtestResult.WinRate * 100.0))
+                      logInfo (sprintf "Backtest Profit Factor: %.2f" backtestResult.ProfitFactor)
+
                       match
                         Visualization.generateAnalysisCharts
                           (processedRecords |> Array.map (fun r -> r.Date))
@@ -355,6 +396,9 @@ module Program =
                         100 // Initial training size
                         20 // Test window size
                         backtestTrainModel
+                        (fun model record ->
+                          let input = MachineLearning.createPredictionInput record
+                          MachineLearning.predict model input)
                         config
 
                     logInfo (

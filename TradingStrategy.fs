@@ -93,17 +93,24 @@ module TradingStrategy =
       |> Array.map float
       |> DataProcessing.calculatePercentageChange
 
-    let signals = generateSimpleSignals predictedPrices actualPrices
+    // Generate signals based on predicted vs previous actual prices (more realistic)
+    let signals =
+      if actualPrices.Length < 2 then
+        [||]
+      else
+        Array.zip predictedPrices.[..actualPrices.Length-2] actualPrices.[..actualPrices.Length-2]
+        |> Array.map (fun (pred, prevActual) ->
+          if float pred > float prevActual then 1.0
+          elif float pred < float prevActual then -1.0
+          else 0.0)
 
-    // Align signals with price changes (signals are one shorter due to differencing)
-    let alignedSignals = signals.[.. priceChanges.Length - 1]
-    let strategyReturns = calculateStrategyReturns priceChanges alignedSignals
+    let strategyReturns = calculateStrategyReturns priceChanges signals
     let cumulativeReturns = calculateCumulativeStrategyReturns strategyReturns
 
     let sharpeRatio =
       DataProcessing.calculateSharpeRatio strategyReturns config.RiskFreeRate
 
-    (alignedSignals, strategyReturns, cumulativeReturns, sharpeRatio)
+    (signals, strategyReturns, cumulativeReturns, sharpeRatio)
 
   /// <summary>
   /// Generates a trading recommendation based on the latest prediction.
@@ -135,8 +142,21 @@ module TradingStrategy =
     let sharpeRatio =
       DataProcessing.calculateSharpeRatio strategyReturns config.RiskFreeRate
 
-    let maxDrawdown = 0.0 // Could be implemented for more advanced analysis
-    let winRate = 0.0 // Could be implemented for more advanced analysis
+    // Calculate maximum drawdown
+    let cumulativeReturns = DataProcessing.calculateCumulativeReturns strategyReturns
+    let mutable maxDrawdown = 0.0
+    let mutable peakValue = 0.0
+
+    for ret in cumulativeReturns do
+      if ret > peakValue then
+        peakValue <- ret
+      else
+        let currentDrawdown = peakValue - ret
+        maxDrawdown <- max maxDrawdown currentDrawdown
+
+    // Calculate win rate (percentage of positive returns)
+    let winningDays = strategyReturns |> Array.filter (fun r -> r > 0.0)
+    let winRate = float winningDays.Length / float strategyReturns.Length
 
     {| TotalReturn = totalReturn
        SharpeRatio = sharpeRatio
@@ -169,7 +189,8 @@ module TradingStrategy =
     (historicalData : GoldDataRecord[])
     (initialTrainSize : int)
     (testWindowSize : int)
-    (trainModel : GoldDataRecord[] -> GoldPredictionModel)
+    (trainModel : GoldDataRecord[] -> 'T)
+    (predictFunc : 'T -> GoldDataRecord -> float32)
     (config : GoldMachineConfig)
     =
     if historicalData.Length < initialTrainSize + testWindowSize then
@@ -177,10 +198,8 @@ module TradingStrategy =
 
     let mutable currentTrainSize = initialTrainSize
     let mutable allReturns = []
-    let mutable allTrades = []
-    let mutable peakValue = 1.0
-
-    let mutable currentPosition = 0.0 // 0 = no position, 1 = long, -1 = short
+    let mutable allTrades = [] // List of (entryPrice, exitPrice, direction, profit)
+    let mutable peakValue = 0.0 // Start from 0 for cumulative returns
 
     while currentTrainSize + testWindowSize <= historicalData.Length do
       // Split data into training and testing windows
@@ -196,54 +215,73 @@ module TradingStrategy =
       // Generate predictions for test window
       let predictions =
         testData
-        |> Array.map (fun record ->
-          let input =
-            { MA3 = record.MA3
-              MA9 = record.MA9 }
-
-          MachineLearning.predict model input)
+        |> Array.map (fun record -> predictFunc model record)
 
       // Generate signals and simulate trading
       let actualPrices = testData |> Array.map (fun r -> float32 r.Close)
       let signals = generateSimpleSignals predictions actualPrices
 
-      // Calculate returns for this test window
+      // Simulate trading for this window
+      let mutable currentPosition = 0.0 // 0 = no position, 1 = long, -1 = short
+      let mutable entryPrice = 0.0
+
       for i in 0 .. signals.Length - 1 do
         let signal = signals.[i]
-        let price = float testData.[i].Close
+        let currentPrice = float testData.[i].Close
 
-        // Simple position management: enter/exit based on signals
-        if signal > 0.0 && currentPosition = 0.0 then
+        match currentPosition, signal with
+        // No position - check for entry signals
+        | 0.0, s when s > 0.0 ->
           // Enter long position
           currentPosition <- 1.0
-          allTrades <- (price, 1.0) :: allTrades // (price, direction)
-        elif signal < 0.0 && currentPosition = 0.0 then
+          entryPrice <- currentPrice
+        | 0.0, s when s < 0.0 ->
           // Enter short position
           currentPosition <- -1.0
-          allTrades <- (price, -1.0) :: allTrades
-        elif
-          ((signal <= 0.0 && currentPosition > 0.0)
-           || (signal >= 0.0 && currentPosition < 0.0))
-          && currentPosition <> 0.0
-        then
+          entryPrice <- currentPrice
+        // Have position - check for exit signals
+        | pos, s when (pos > 0.0 && s <= 0.0) || (pos < 0.0 && s >= 0.0) ->
           // Exit position
+          let exitPrice = currentPrice
+          let profit = (exitPrice - entryPrice) * pos // pos is +/- 1
+          let trade = (entryPrice, exitPrice, pos, profit)
+          allTrades <- trade :: allTrades
           currentPosition <- 0.0
+        | _ -> () // Hold position
 
-      // Calculate returns (simplified - just price changes while in position)
-      let windowReturns =
-        testData
-        |> Array.map (fun r -> r.Close)
-        |> DataProcessing.calculatePercentageChange
-        |> Array.map (fun ret -> ret * currentPosition)
+        // Calculate daily return if in position
+        if currentPosition <> 0.0 then
+          let dailyReturn =
+            if i > 0 then
+              let prevPrice = float testData.[i - 1].Close
+              (currentPrice - prevPrice) / prevPrice * currentPosition
+            else
+              0.0 // No return on entry day
+          allReturns <- dailyReturn :: allReturns
 
-      allReturns <- Array.toList windowReturns @ allReturns
+      // If still in position at end of window, close it
+      if currentPosition <> 0.0 then
+        let exitPrice = float testData.[testData.Length - 1].Close
+        let profit = (exitPrice - entryPrice) * currentPosition
+        let trade = (entryPrice, exitPrice, currentPosition, profit)
+        allTrades <- trade :: allTrades
 
       // Expand training window for next iteration
       currentTrainSize <- currentTrainSize + testWindowSize
 
+    // Reverse lists since we prepended
+    let allReturns = List.rev allReturns
+    let allTrades = List.rev allTrades
+
     // Calculate performance metrics
     let totalReturn = allReturns |> List.sum
-    let annualizedReturn = totalReturn * 252.0 / float allReturns.Length // Assuming 252 trading days
+
+    // Annualized return (252 trading days per year)
+    let annualizedReturn =
+      if allReturns.Length > 0 then
+        totalReturn * 252.0 / float allReturns.Length
+      else
+        0.0
 
     let volatility =
       DataProcessing.calculateVolatility (allReturns |> List.toArray)
@@ -254,26 +292,22 @@ module TradingStrategy =
         config.RiskFreeRate
 
     // Calculate maximum drawdown
-    let mutable maxDrawdown = 0.0
-    let mutable currentDrawdown = 0.0
-
     let cumulativeReturns =
       DataProcessing.calculateCumulativeReturns (allReturns |> List.toArray)
+
+    let mutable maxDrawdown = 0.0
+    let mutable peakValue = 0.0
 
     for ret in cumulativeReturns do
       if ret > peakValue then
         peakValue <- ret
-        currentDrawdown <- 0.0
       else
-        currentDrawdown <- (peakValue - ret) / peakValue
+        let currentDrawdown = peakValue - ret
         maxDrawdown <- max maxDrawdown currentDrawdown
 
-    // Calculate win rate and profit factor
-    let winningTrades =
-      allTrades
-      |> List.filter (fun (entryPrice, direction) ->
-        // Simplified: assume profitable if we have any return
-        true) // This is a simplification - real implementation would track entry/exit pairs
+    // Calculate win rate and profit factor from actual trades
+    let winningTrades = allTrades |> List.filter (fun (_, _, _, profit) -> profit > 0.0)
+    let losingTrades = allTrades |> List.filter (fun (_, _, _, profit) -> profit < 0.0)
 
     let winRate =
       if allTrades.Length > 0 then
@@ -282,11 +316,8 @@ module TradingStrategy =
         0.0
 
     // Calculate profit factor (gross profit / gross loss)
-    let profits = allReturns |> List.filter (fun r -> r > 0.0)
-    let losses = allReturns |> List.filter (fun r -> r < 0.0) |> List.map abs
-
-    let grossProfit = profits |> List.sum
-    let grossLoss = losses |> List.sum
+    let grossProfit = winningTrades |> List.sumBy (fun (_, _, _, profit) -> profit)
+    let grossLoss = losingTrades |> List.sumBy (fun (_, _, _, profit) -> abs profit)
 
     let profitFactor =
       if grossLoss > 0.0 then grossProfit / grossLoss
