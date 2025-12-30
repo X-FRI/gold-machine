@@ -241,6 +241,45 @@ type GoldMachineError =
   | ConfigurationError of string
 
 /// <summary>
+/// ATR-based risk management configuration.
+/// </summary>
+type ATRRiskConfig =
+  { /// <summary>
+    /// Multiplier for ATR-based stop loss (default: 1.5-2.0).
+    /// Stop loss distance = ATR × StopLossMultiplier
+    /// </summary>
+    StopLossMultiplier : float
+    /// <summary>
+    /// Multiplier for ATR-based take profit (default: 2.0-3.0).
+    /// Take profit distance = ATR × TakeProfitMultiplier
+    /// </summary>
+    TakeProfitMultiplier : float
+    /// <summary>
+    /// Whether to enable ATR-based position sizing (default: true).
+    /// </summary>
+    PositionSizingEnabled : bool
+    /// <summary>
+    /// Base position size as percentage of capital (default: 0.2 = 20%).
+    /// </summary>
+    BasePositionSize : float
+    /// <summary>
+    /// Maximum position size as percentage of capital (default: 0.3 = 30%).
+    /// </summary>
+    MaxPositionSize : float
+    /// <summary>
+    /// Minimum position size as percentage of capital (default: 0.05 = 5%).
+    /// </summary>
+    MinPositionSize : float
+    /// <summary>
+    /// Period for calculating ATR baseline (default: 30 days).
+    /// </summary>
+    ATRBaselinePeriod : int
+    /// <summary>
+    /// Whether to use trailing stop loss (default: true).
+    /// </summary>
+    TrailingStopEnabled : bool }
+
+/// <summary>
 /// Configuration settings for the gold price prediction system.
 /// Includes API endpoints, data parameters, and model settings.
 /// </summary>
@@ -254,7 +293,8 @@ type GoldMachineConfig =
     MLAlgorithm : MLAlgorithm
     UseEnsemble : bool
     FastTreeParams : FastTreeParameters
-    FastForestParams : FastForestParameters }
+    FastForestParams : FastForestParameters
+    ATRRiskConfig : ATRRiskConfig }
 
 /// <summary>
 /// Abstract interface for data providers.

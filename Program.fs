@@ -417,7 +417,7 @@ module Program =
                     logInfo (sprintf "Strategy Sharpe Ratio: %.4f" sharpeRatio)
 
                     // Perform walk-forward backtesting
-                    logInfo "Performing walk-forward backtesting..."
+                    logInfo "Performing walk-forward backtesting with ATR risk management..."
 
                     let backtestTrainModel =
                       fun (data : GoldDataRecord[]) ->

@@ -107,6 +107,29 @@ module Configuration =
         Shrinkage =
           float32 (getEnvVarFloat "GOLD_MACHINE_FASTFOREST_SHRINKAGE" 0.1) }
 
+    // ATR Risk Management Configuration
+    let atrRiskConfig =
+      { StopLossMultiplier =
+          getEnvVarFloat "GOLD_MACHINE_ATR_STOP_LOSS_MULTIPLIER" 1.5
+        TakeProfitMultiplier =
+          getEnvVarFloat "GOLD_MACHINE_ATR_TAKE_PROFIT_MULTIPLIER" 2.5
+        PositionSizingEnabled =
+          match getEnvVar "GOLD_MACHINE_ATR_POSITION_SIZING_ENABLED" "true" with
+          | "false" -> false
+          | _ -> true
+        BasePositionSize =
+          getEnvVarFloat "GOLD_MACHINE_ATR_BASE_POSITION_SIZE" 0.2
+        MaxPositionSize =
+          getEnvVarFloat "GOLD_MACHINE_ATR_MAX_POSITION_SIZE" 0.3
+        MinPositionSize =
+          getEnvVarFloat "GOLD_MACHINE_ATR_MIN_POSITION_SIZE" 0.05
+        ATRBaselinePeriod =
+          int (getEnvVar "GOLD_MACHINE_ATR_BASELINE_PERIOD" "30")
+        TrailingStopEnabled =
+          match getEnvVar "GOLD_MACHINE_ATR_TRAILING_STOP_ENABLED" "true" with
+          | "false" -> false
+          | _ -> true }
+
     { ApiBaseUrl = apiBaseUrl
       Symbol = symbol
       StartDate = startDate
@@ -116,7 +139,8 @@ module Configuration =
       MLAlgorithm = algorithm
       UseEnsemble = useEnsemble
       FastTreeParams = fastTreeParameters
-      FastForestParams = fastForestParameters }
+      FastForestParams = fastForestParameters
+      ATRRiskConfig = atrRiskConfig }
 
   /// <summary>
   /// Gets the default configuration for the gold price prediction system.

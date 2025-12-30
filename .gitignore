@@ -1,3 +1,5 @@
 *.html
 bin/
 obj/
+
+docs/

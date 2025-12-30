@@ -1,258 +1,357 @@
 # Gold Machine
 
-A command-line application for predicting gold ETF and futures prices using machine learning.
+A sophisticated command-line application for predicting gold ETF and futures prices using machine learning, with advanced risk management powered by ATR (Average True Range) strategies.
+
+## Features
+
+- **Machine Learning Prediction**: Multiple algorithms (LinearRegression, FastTree, FastForest) with ensemble support
+- **ATR-Based Risk Management**: Dynamic stop-loss, take-profit, and position sizing
+- **Walk-Forward Backtesting**: Realistic out-of-sample testing with expanding windows
+- **Technical Indicators**: MA, RSI, ATR, MACD, Bollinger Bands, and more
+- **Interactive Visualizations**: Price prediction charts and cumulative returns analysis
 
 ## Supported Data Sources
+
 > https://akshare.akfamily.xyz/index.html
 
 ### Gold ETF Data (Default)
 - API Endpoint: `fund_etf_hist_em`
 - Symbol: `518880` (GLD ETF)
-- Data Fields: Date, Close price
+- Data Fields: Date, Open, High, Low, Close, Volume
 
 ### Shanghai Gold Exchange (SGE) Futures
 - API Endpoint: `spot_hist_sge`
 - Symbol: `Au99.99` (Gold futures)
 - Data Fields: Date, Open, High, Low, Close prices
 
-## Dependencies
-
-- Deedle: Data manipulation and analysis
-- MathNet.Numerics: Statistical computations
-- Microsoft.ML: Machine learning framework
-- Plotly.NET: Interactive charting
-- Newtonsoft.Json: JSON parsing
-
-## Usage
+## Quick Start
 
 ```bash
 # Use default ETF data (GLD ETF)
 dotnet run
 
-# Use custom ETF symbol
-dotnet run --etf 159549
+# Use custom ETF symbol with ensemble model
+dotnet run -- --etf 159831 --ensemble
 
 # Use Shanghai Gold Exchange data
 dotnet run sge
 
-# Set configuration via environment variables
-GOLD_MACHINE_SYMBOL=159549 GOLD_MACHINE_ALGORITHM=FastTree dotnet run
+# Custom ATR risk management
+GOLD_MACHINE_ATR_STOP_LOSS_MULTIPLIER=2.0 \
+GOLD_MACHINE_ATR_TAKE_PROFIT_MULTIPLIER=3.0 \
+dotnet run -- --etf 159831 --ensemble
 ```
 
-### Configuration Options
+## Installation
 
-The system supports configuration via environment variables:
+### Prerequisites
+- .NET 10.0 SDK or later
+- Access to AKShare API (default: http://127.0.0.1:8080/api/public)
 
+### Build
+```bash
+dotnet restore
+dotnet build
+```
+
+## Configuration
+
+### Environment Variables
+
+#### Basic Configuration
 - `GOLD_MACHINE_API_URL`: API base URL (default: http://127.0.0.1:8080/api/public)
 - `GOLD_MACHINE_SYMBOL`: Symbol to use (default: 518880)
 - `GOLD_MACHINE_START_DATE`: Start date in YYYYMMDD format (default: 20000101)
 - `GOLD_MACHINE_TRAIN_RATIO`: Training data ratio 0-1 (default: 0.8)
 - `GOLD_MACHINE_RISK_FREE_RATE`: Risk-free rate for Sharpe ratio (default: 0.02)
 - `GOLD_MACHINE_DATA_PROVIDER`: Data provider ETF or SGE (default: ETF)
+
+#### Machine Learning Configuration
 - `GOLD_MACHINE_ALGORITHM`: ML algorithm: LinearRegression, FastTree, FastForest, OnlineGradientDescent (default: LinearRegression)
-- `GOLD_MACHINE_FASTTREE_TREES`: FastTree number of trees (default: 100)
-- `GOLD_MACHINE_FASTTREE_LEAVES`: FastTree number of leaves per tree (default: 20)
-- `GOLD_MACHINE_FASTTREE_MIN_EXAMPLES`: FastTree minimum examples per leaf (default: 10)
-- `GOLD_MACHINE_FASTTREE_LEARNING_RATE`: FastTree learning rate (default: 0.2)
-- `GOLD_MACHINE_FASTTREE_SHRINKAGE`: FastTree shrinkage (default: 0.1)
-- `GOLD_MACHINE_FASTFOREST_TREES`: FastForest number of trees (default: 100)
-- `GOLD_MACHINE_FASTFOREST_LEAVES`: FastForest number of leaves per tree (default: 20)
-- `GOLD_MACHINE_FASTFOREST_MIN_EXAMPLES`: FastForest minimum examples per leaf (default: 10)
-- `GOLD_MACHINE_FASTFOREST_SHRINKAGE`: FastForest shrinkage (default: 0.1)
+- `GOLD_MACHINE_USE_ENSEMBLE`: Use ensemble model combining all algorithms (default: false)
+
+#### FastTree Parameters (Reduced complexity to prevent overfitting)
+- `GOLD_MACHINE_FASTTREE_TREES`: Number of trees (default: 30, was 100)
+- `GOLD_MACHINE_FASTTREE_LEAVES`: Number of leaves per tree (default: 10, was 20)
+- `GOLD_MACHINE_FASTTREE_MIN_EXAMPLES`: Minimum examples per leaf (default: 50, was 10)
+- `GOLD_MACHINE_FASTTREE_LEARNING_RATE`: Learning rate (default: 0.1, was 0.2)
+- `GOLD_MACHINE_FASTTREE_SHRINKAGE`: Shrinkage (default: 0.1)
+
+#### FastForest Parameters (Reduced complexity to prevent overfitting)
+- `GOLD_MACHINE_FASTFOREST_TREES`: Number of trees (default: 30, was 100)
+- `GOLD_MACHINE_FASTFOREST_LEAVES`: Number of leaves per tree (default: 10, was 20)
+- `GOLD_MACHINE_FASTFOREST_MIN_EXAMPLES`: Minimum examples per leaf (default: 50, was 10)
+- `GOLD_MACHINE_FASTFOREST_SHRINKAGE`: Shrinkage (default: 0.1)
+
+#### ATR Risk Management Configuration
+- `GOLD_MACHINE_ATR_STOP_LOSS_MULTIPLIER`: ATR multiplier for stop loss (default: 1.5)
+- `GOLD_MACHINE_ATR_TAKE_PROFIT_MULTIPLIER`: ATR multiplier for take profit (default: 2.5)
+- `GOLD_MACHINE_ATR_POSITION_SIZING_ENABLED`: Enable ATR-based position sizing (default: true)
+- `GOLD_MACHINE_ATR_BASE_POSITION_SIZE`: Base position size as percentage (default: 0.2 = 20%)
+- `GOLD_MACHINE_ATR_MAX_POSITION_SIZE`: Maximum position size (default: 0.3 = 30%)
+- `GOLD_MACHINE_ATR_MIN_POSITION_SIZE`: Minimum position size (default: 0.05 = 5%)
+- `GOLD_MACHINE_ATR_BASELINE_PERIOD`: Period for baseline ATR calculation (default: 30 days)
+- `GOLD_MACHINE_ATR_TRAILING_STOP_ENABLED`: Enable trailing stop loss (default: true)
 
 ### Command Line Options
 
 - `--etf <symbol>`: Specify custom ETF symbol (default: 518880 for GLD ETF)
+- `--ensemble`: Use ensemble model (combines all algorithms)
 - `sge`: Use Shanghai Gold Exchange futures data
-- No arguments: Use default ETF data
+- No arguments: Use default configuration
 
-### Examples
+## Trading Strategies
 
+### 1. ML-Based Prediction Strategy
+
+The core strategy uses machine learning models to predict future prices:
+
+- **Signal Generation**: Buy when predicted price > current price, Sell when predicted price < current price
+- **Model Selection**: LinearRegression (default), FastTree, FastForest, or Ensemble
+- **Ensemble Model**: Combines multiple algorithms with performance-based weighting
+
+### 2. ATR Risk Management Strategy
+
+Advanced risk management using Average True Range (ATR):
+
+#### Dynamic Stop Loss
+- **Calculation**: `StopLoss = EntryPrice ± (ATR × StopLossMultiplier)`
+- **Adaptive**: Adjusts automatically based on market volatility
+- **Trailing Stop**: Moves in favorable direction to protect profits
+
+#### Dynamic Take Profit
+- **Calculation**: `TakeProfit = EntryPrice ± (ATR × TakeProfitMultiplier)`
+- **Risk-Reward Ratio**: Default 2.5/1.5 = 1.67 (targets 1.67x profit per unit risk)
+
+#### Position Sizing
+- **Volatility Adjustment**: Position size inversely proportional to current ATR
+  - Low volatility (ATR < baseline): Increase position (up to 30%)
+  - High volatility (ATR > baseline): Decrease position (down to 5%)
+- **Formula**: `PositionSize = BaseSize × (BaselineATR / CurrentATR)`
+
+**Example**:
+```
+Entry Price: 9.45
+Current ATR: 0.15
+Baseline ATR: 0.15
+
+Stop Loss: 9.45 - (0.15 × 1.5) = 9.225
+Take Profit: 9.45 + (0.15 × 2.5) = 9.825
+Position Size: 20% (normal volatility)
+```
+
+## Usage Examples
+
+### Basic Usage
 ```bash
-# Default usage - GLD ETF
+# Default configuration
 dotnet run
 
 # Custom ETF symbol
-dotnet run --etf 159549
+dotnet run -- --etf 159831
 
-# Shanghai Gold Exchange futures
-dotnet run sge
+# Ensemble model
+dotnet run -- --ensemble
 
-# Use FastTree algorithm
-GOLD_MACHINE_ALGORITHM=FastTree dotnet run
-
-# Custom configuration
-GOLD_MACHINE_SYMBOL=159549 GOLD_MACHINE_TRAIN_RATIO=0.9 dotnet run
+# Combined
+dotnet run -- --etf 159831 --ensemble
 ```
 
-## Configuration
+### Advanced Configuration
+```bash
+# Conservative ATR settings (wider stops)
+GOLD_MACHINE_ATR_STOP_LOSS_MULTIPLIER=2.0 \
+GOLD_MACHINE_ATR_TAKE_PROFIT_MULTIPLIER=3.0 \
+dotnet run -- --etf 159831 --ensemble
 
-The system uses environment variables for configuration with sensible defaults. The configuration is validated at startup to ensure data integrity.
+# Disable position sizing (fixed 20% position)
+GOLD_MACHINE_ATR_POSITION_SIZING_ENABLED=false \
+dotnet run -- --etf 159831 --ensemble
 
-### Default Configuration
-- API Base URL: `http://127.0.0.1:8080/api/public`
-- Symbol: `518880` (GLD ETF)
-- Start Date: `20000101` (January 1, 2000)
-- Training Ratio: `0.8` (80% training, 20% testing)
-- Risk-Free Rate: `0.02` (2% annual risk-free rate)
-- Data Provider: `ETF`
-- ML Algorithm: `LinearRegression`
-
-## Adding New Data Sources
-
-To add a new data source:
-
-1. Define Data Types in `Types.fs`:
-   ```fsharp
-   type RawNewDataSource =
-     { [<JsonProperty("field")>]
-       Field : string }
-
-   type NewDataSourceResponse = RawNewDataSource[]
-   ```
-
-2. Update RawDataSource Union:
-   ```fsharp
-   type RawDataSource =
-     | ETF of RawGoldETFData[]
-     | SGE of RawGoldSGEData[]
-     | NewSource of RawNewDataSource[]  // Add new case
-   ```
-
-3. Add DataProviderType:
-   ```fsharp
-   type DataProviderType =
-     | ETFProvider
-     | SGEProvider
-     | NewProvider  // Add new provider type
-   ```
-
-4. Implement Data Provider in `DataProviders.fs`:
-   ```fsharp
-   type NewDataProvider() =
-       interface IDataProvider with
-           member this.Name = "New Data Provider"
-           member this.ProviderType = NewProvider
-           member this.FetchRawData config = // Implementation
-   ```
-
-5. Update Data Processing in `DataProcessing.fs`:
-   ```fsharp
-   let convertRawDataToRecords rawData =
-     match rawData with
-     | NewSource data -> // Handle new data format
-   ```
-
-6. Add Configuration in `Configuration.fs`:
-   ```fsharp
-   let getNewConfig () = // New configuration function
-   ```
+# Disable trailing stop (fixed stop loss only)
+GOLD_MACHINE_ATR_TRAILING_STOP_ENABLED=false \
+dotnet run -- --etf 159831 --ensemble
+```
 
 ## Output & Analytics
 
 ### Console Output
-The application provides comprehensive analysis output:
+The application provides comprehensive analysis:
 
 ```
-Gold Price Prediction System v2.0
-===================================
-Usage: dotnet run [options]
-[... configuration info ...]
-
-[INFO] Configuration: API=http://127.0.0.1:8080/api/public, Symbol=518880, StartDate=20000101
-[INFO] Acquiring gold price data from Gold ETF Provider...
-[INFO] Data processed successfully. Records: 2966
-[INFO] Training LinearRegression model...
-[INFO] Model R² Score: 0.9982
-[INFO] Model MAE: 0.0333
-[INFO] Model RMSE: 0.0521
-[INFO] Model MAPE: 0.54%
-[INFO] Strategy Sharpe Ratio: -2.1719
-[INFO] Performing walk-forward backtesting...
-[INFO] Backtest Total Return: -216.04%
-[INFO] Backtest Annualized Return: -20.04%
-[INFO] Backtest Sharpe Ratio: -3.0511
-[INFO] Backtest Max Drawdown: 316.84%
-[INFO] Trading recommendation: BUY GLD - Predicted price higher than current price
+[INFO] Configuration: API=http://127.0.0.1:8080/api/public, Symbol=159831
+[INFO] Data processed successfully. Records: 889
+[INFO] Training ensemble model with all available algorithms...
+[INFO] Ensemble R² Score: 0.9786
+[INFO] Ensemble MAPE: 1.00%
+[INFO] ATR Risk Management: StopLoss=1.5x ATR, TakeProfit=2.5x ATR
+[INFO] ATR Strategy Statistics: StopLoss=15, TakeProfit=8, TrailingStop=3
+[INFO] Position Sizing: Avg=18.50%, Min=5.00%, Max=30.00%
+[INFO] Backtest Total Return: 0.01%
+[INFO] Backtest Sharpe Ratio: -14.39
+[INFO] Backtest Max Drawdown: 0.02%
 ```
 
 ### Performance Metrics
-- Model Evaluation: R², MAE, RMSE, MAPE scores
-- Strategy Analysis: Sharpe ratio, win rate, profit factor
-- Backtesting Results: Total return, annualized return, maximum drawdown
-- Trading Signals: Buy/Hold/Sell recommendations based on predictions
 
-### Data Quality Assurance
-- Outlier detection using IQR method
-- Chronological data validation
-- Missing data imputation
-- Anomaly removal using statistical filters
+**Model Evaluation**:
+- R² Score: Coefficient of determination
+- MAE: Mean Absolute Error
+- RMSE: Root Mean Squared Error
+- MAPE: Mean Absolute Percentage Error
+- sMAPE: Symmetric MAPE
+- tMAPE: Truncated MAPE
+
+**Strategy Analysis**:
+- Sharpe Ratio: Risk-adjusted return
+- Win Rate: Percentage of profitable trades
+- Profit Factor: Gross profit / Gross loss
+- Maximum Drawdown: Largest peak-to-trough decline
+
+**ATR Statistics**:
+- Stop Loss Triggers: Number of trades exited via stop loss
+- Take Profit Triggers: Number of trades exited via take profit
+- Trailing Stop Triggers: Number of trades exited via trailing stop
+- Average Position Size: Mean position size across all trades
 
 ### Interactive Visualizations
-- Price Prediction Chart (`gold_price_prediction.html`): Actual vs predicted prices with prediction intervals
-- Cumulative Returns Chart (`cumulative_returns.html`): Strategy performance over time
 
-### Backtesting Framework
-The system implements walk-forward backtesting with:
-- Expanding training windows
-- Rolling out-of-sample testing
-- Realistic position sizing and trade execution
-- Comprehensive risk metrics calculation
+- **Price Prediction Chart** (`price_prediction.html`): Actual vs predicted prices with prediction intervals
+- **Cumulative Returns Chart** (`cumulative_returns.html`): Strategy performance over time
 
-## Machine Learning Pipeline
+## Implementation Details
 
-### 1. Configuration & Validation
-- Load configuration from environment variables with validation
-- Support multiple data providers (ETF/SGE) and ML algorithms
-- Ensure data integrity and parameter consistency
+### Machine Learning Pipeline
 
-### 2. Data Acquisition
-- Fetch historical price data from external APIs
-- Support configurable symbols and date ranges
-- Handle API errors gracefully with retry logic
+1. **Data Acquisition**: Fetch historical data from AKShare API
+2. **Data Processing**: Calculate technical indicators (MA, RSI, ATR, etc.)
+3. **Feature Engineering**: Prepare features for ML models
+4. **Model Training**: Train models with walk-forward validation
+5. **Ensemble Creation**: Combine models with performance-based weights
+6. **Prediction**: Generate price predictions
+7. **Strategy Execution**: Apply ATR risk management
+8. **Backtesting**: Walk-forward backtesting with expanding windows
 
-### 3. Data Quality Assurance
-- Outlier detection using statistical methods (IQR)
-- Chronological ordering validation
-- Anomaly removal and data cleaning
-- Missing value imputation
+### ATR Risk Management Implementation
 
-### 4. Feature Engineering
-- Calculate technical indicators (MA3, MA9 moving averages)
-- Ensure proper data alignment and validation
-- Handle edge cases in moving average calculations
+**Stop Loss Calculation**:
+```fsharp
+let stopLoss = calculateATRStopLoss entryPrice currentATR direction multiplier
+// For long: EntryPrice - (ATR × multiplier)
+// For short: EntryPrice + (ATR × multiplier)
+```
 
-### 5. Model Training & Selection
-- Support multiple ML algorithms: LinearRegression, FastTree, FastForest, OnlineGradientDescent
-- Cross-validation for model evaluation
-- Automatic algorithm selection based on performance
+**Position Sizing**:
+```fsharp
+let positionSize = calculateATRPositionSize currentATR baselineATR baseSize maxSize minSize
+// Adjustment factor = BaselineATR / CurrentATR
+// Adjusted size = BaseSize × AdjustmentFactor
+// Final size = clamp(AdjustedSize, MinSize, MaxSize)
+```
 
-### 6. Model Evaluation
-- Comprehensive metrics: R², MAE, RMSE, MAPE
-- Model health assessment and risk classification
-- Prediction interval estimation
+**Trailing Stop**:
+```fsharp
+let updatedPos = updateTrailingStop position currentPrice currentATR multiplier
+// New stop = CurrentPrice - (ATR × multiplier)
+// Stop only moves in favorable direction
+```
 
-### 7. Trading Strategy
-- Simple momentum-based signals (Buy/Hold/Sell)
-- Sharpe ratio calculation and risk assessment
-- Trading recommendation generation
+### Walk-Forward Backtesting
 
-### 8. Walk-Forward Backtesting
-- Realistic out-of-sample testing with expanding windows
-- Comprehensive risk metrics (total return, max drawdown, win rate)
-- Position sizing and trade execution simulation
+The system implements realistic backtesting:
 
-### 9. Visualization & Reporting
-- Interactive price prediction charts
-- Cumulative returns analysis
-- HTML output for web viewing
+- **Expanding Windows**: Training window grows over time
+- **Out-of-Sample Testing**: Test on unseen future data
+- **ATR Integration**: Full ATR risk management in backtest
+- **Trade Tracking**: Records entry/exit prices, reasons, and position sizes
 
-### 10. Error Handling & Logging
-- Comprehensive error handling with Result types
-- Detailed logging throughout the pipeline
-- Graceful failure recovery
+## Technical Indicators
 
-## [LICENSE](./LICENSE)
+The system calculates and uses:
+
+- **Moving Averages**: MA3, MA9, MA20
+- **Momentum**: RSI (14-period)
+- **Volatility**: ATR (14-period), Historical Volatility
+- **Trend**: MACD, EMA12, EMA26 (calculated but not yet fully integrated)
+
+## Project Structure
+
+```
+gold-machine/
+├── DataAcquisition.fs      # API data fetching
+├── DataProcessing.fs        # Technical indicators calculation
+├── DataProviders.fs         # Data provider implementations
+├── MachineLearning.fs       # ML model training and prediction
+├── TradingStrategy.fs       # Trading strategies and ATR risk management
+├── Configuration.fs         # Configuration management
+├── Types.fs                 # Type definitions
+├── Visualization.fs          # Chart generation
+├── Program.fs               # Main entry point
+└── docs/                    # Documentation
+    ├── ATR_IMPLEMENTATION.md
+    ├── ATR_QUANTITATIVE_ROLE.md
+    ├── STRATEGY_ANALYSIS.md
+    └── FIXES_SUMMARY.md
+```
+
+## Dependencies
+
+- **Deedle**: Data manipulation and analysis
+- **MathNet.Numerics**: Statistical computations
+- **Microsoft.ML**: Machine learning framework
+- **Plotly.NET**: Interactive charting
+- **Newtonsoft.Json**: JSON parsing
+
+## Performance Improvements
+
+Recent optimizations:
+
+1. **Model Complexity Reduction**: Reduced FastTree/FastForest parameters to prevent overfitting
+   - Trees: 100 → 30
+   - Leaves: 20 → 10
+   - Min Examples: 10 → 50
+   - Learning Rate: 0.2 → 0.1
+
+2. **Data Leakage Fix**: Separate validation set for ensemble weighting
+
+3. **Enhanced Metrics**: Added sMAPE and truncated MAPE for better evaluation
+
+4. **ATR Risk Management**: Dynamic stop-loss, take-profit, and position sizing
+
+## Troubleshooting
+
+### ATR Values Are Zero
+If ATR values are all zero, check:
+1. Data has sufficient history (need at least 15 days for 14-period ATR)
+2. High/Low/Close prices are valid
+3. Data alignment in `DataProcessing.fs`
+
+### Poor Model Performance
+- Check for overfitting (training R² >> test R²)
+- Try ensemble model: `--ensemble`
+- Adjust model parameters via environment variables
+
+### API Connection Issues
+- Verify API is running at configured URL
+- Check network connectivity
+- Review API response format
+
+## Contributing
+
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+## Documentation
+
+- [ATR Implementation Guide](docs/ATR_IMPLEMENTATION.md)
+- [ATR Quantitative Role](docs/ATR_QUANTITATIVE_ROLE.md)
+- [Strategy Analysis](docs/STRATEGY_ANALYSIS.md)
+- [Fixes Summary](docs/FIXES_SUMMARY.md)
+
+## License
 
 ```
 Copyright (c) 2025 Somhairle H. Marisol
