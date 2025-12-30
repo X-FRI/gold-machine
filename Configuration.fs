@@ -55,12 +55,12 @@ module Configuration =
       match getEnvVar "GOLD_MACHINE_ALGORITHM" "LinearRegression" with
       | "FastTree" ->
         let fastTreeParameters =
-          { NumberOfTrees = int (getEnvVar "GOLD_MACHINE_FASTTREE_TREES" "100")
-            NumberOfLeaves = int (getEnvVar "GOLD_MACHINE_FASTTREE_LEAVES" "20")
+          { NumberOfTrees = int (getEnvVar "GOLD_MACHINE_FASTTREE_TREES" "30")
+            NumberOfLeaves = int (getEnvVar "GOLD_MACHINE_FASTTREE_LEAVES" "10")
             MinimumExampleCountPerLeaf =
-              int (getEnvVar "GOLD_MACHINE_FASTTREE_MIN_EXAMPLES" "10")
+              int (getEnvVar "GOLD_MACHINE_FASTTREE_MIN_EXAMPLES" "50")
             LearningRate =
-              float32 (getEnvVarFloat "GOLD_MACHINE_FASTTREE_LEARNING_RATE" 0.2)
+              float32 (getEnvVarFloat "GOLD_MACHINE_FASTTREE_LEARNING_RATE" 0.1)
             Shrinkage =
               float32 (getEnvVarFloat "GOLD_MACHINE_FASTTREE_SHRINKAGE" 0.1) }
 
@@ -68,11 +68,11 @@ module Configuration =
       | "FastForest" ->
         let fastForestParameters =
           { NumberOfTrees =
-              int (getEnvVar "GOLD_MACHINE_FASTFOREST_TREES" "100")
+              int (getEnvVar "GOLD_MACHINE_FASTFOREST_TREES" "30")
             NumberOfLeaves =
-              int (getEnvVar "GOLD_MACHINE_FASTFOREST_LEAVES" "20")
+              int (getEnvVar "GOLD_MACHINE_FASTFOREST_LEAVES" "10")
             MinimumExampleCountPerLeaf =
-              int (getEnvVar "GOLD_MACHINE_FASTFOREST_MIN_EXAMPLES" "10")
+              int (getEnvVar "GOLD_MACHINE_FASTFOREST_MIN_EXAMPLES" "50")
             Shrinkage =
               float32 (getEnvVarFloat "GOLD_MACHINE_FASTFOREST_SHRINKAGE" 0.1) }
 
@@ -85,23 +85,25 @@ module Configuration =
       | "true" -> true
       | _ -> false
 
-    // FastTree parameters
+    // FastTree parameters - Reduced complexity to prevent overfitting
+    // Default: 30 trees (was 100), 10 leaves (was 20), 50 min examples (was 10), 0.1 learning rate (was 0.2)
     let fastTreeParameters =
-      { NumberOfTrees = int (getEnvVar "GOLD_MACHINE_FASTTREE_TREES" "100")
-        NumberOfLeaves = int (getEnvVar "GOLD_MACHINE_FASTTREE_LEAVES" "20")
+      { NumberOfTrees = int (getEnvVar "GOLD_MACHINE_FASTTREE_TREES" "30")
+        NumberOfLeaves = int (getEnvVar "GOLD_MACHINE_FASTTREE_LEAVES" "10")
         MinimumExampleCountPerLeaf =
-          int (getEnvVar "GOLD_MACHINE_FASTTREE_MIN_EXAMPLES" "10")
+          int (getEnvVar "GOLD_MACHINE_FASTTREE_MIN_EXAMPLES" "50")
         LearningRate =
-          float32 (getEnvVarFloat "GOLD_MACHINE_FASTTREE_LEARNING_RATE" 0.2)
+          float32 (getEnvVarFloat "GOLD_MACHINE_FASTTREE_LEARNING_RATE" 0.1)
         Shrinkage =
           float32 (getEnvVarFloat "GOLD_MACHINE_FASTTREE_SHRINKAGE" 0.1) }
 
-    // FastForest parameters
+    // FastForest parameters - Reduced complexity to prevent overfitting
+    // Default: 30 trees (was 100), 10 leaves (was 20), 50 min examples (was 10)
     let fastForestParameters =
-      { NumberOfTrees = int (getEnvVar "GOLD_MACHINE_FASTFOREST_TREES" "100")
-        NumberOfLeaves = int (getEnvVar "GOLD_MACHINE_FASTFOREST_LEAVES" "20")
+      { NumberOfTrees = int (getEnvVar "GOLD_MACHINE_FASTFOREST_TREES" "30")
+        NumberOfLeaves = int (getEnvVar "GOLD_MACHINE_FASTFOREST_LEAVES" "10")
         MinimumExampleCountPerLeaf =
-          int (getEnvVar "GOLD_MACHINE_FASTFOREST_MIN_EXAMPLES" "10")
+          int (getEnvVar "GOLD_MACHINE_FASTFOREST_MIN_EXAMPLES" "50")
         Shrinkage =
           float32 (getEnvVarFloat "GOLD_MACHINE_FASTFOREST_SHRINKAGE" 0.1) }
 

@@ -248,28 +248,101 @@ module MachineLearning =
       |> Array.averageBy (fun (a, p) -> float (abs ((a - p) / a)) * 100.0)
 
   /// <summary>
+  /// Calculates the Symmetric Mean Absolute Percentage Error (sMAPE).
+  /// More robust than MAPE when predictions and actuals have different scales.
+  /// </summary>
+  /// <param name="actual">Array of actual values.</param>
+  /// <param name="predicted">Array of predicted values.</param>
+  /// <returns>The symmetric mean absolute percentage error as a percentage.</returns>
+  let calculateSMAPE (actual : float32[]) (predicted : float32[]) =
+    match DataProcessing.validateArrayLengths [| actual ; predicted |] with
+    | Error _ -> 0.0
+    | Ok _ ->
+      Array.zip actual predicted
+      |> Array.filter (fun (a, p) -> abs (a + p) > 0.0f) // Avoid division by zero
+      |> Array.averageBy (fun (a, p) ->
+        let numerator = abs (a - p) |> float
+        let denominator = (abs a + abs p) / 2.0f |> float
+        if denominator = 0.0 then 0.0 else (numerator / denominator) * 100.0)
+
+  /// <summary>
+  /// Calculates the Truncated Mean Absolute Percentage Error (tMAPE).
+  /// Limits maximum error percentage to prevent extreme values from skewing results.
+  /// </summary>
+  /// <param name="actual">Array of actual values.</param>
+  /// <param name="predicted">Array of predicted values.</param>
+  /// <param name="maxErrorPercent">Maximum error percentage to cap at (default 100%).</param>
+  /// <returns>The truncated mean absolute percentage error as a percentage.</returns>
+  let calculateTruncatedMAPE
+    (actual : float32[])
+    (predicted : float32[])
+    (maxErrorPercent : float)
+    =
+    match DataProcessing.validateArrayLengths [| actual ; predicted |] with
+    | Error _ -> 0.0
+    | Ok _ ->
+      Array.zip actual predicted
+      |> Array.filter (fun (a, _) -> a <> 0.0f) // Avoid division by zero
+      |> Array.map (fun (a, p) ->
+        let error = float (abs ((a - p) / a)) * 100.0
+        min error maxErrorPercent) // Truncate at maxErrorPercent
+      |> Array.average
+
+  /// <summary>
   /// Evaluates the performance of a trained model.
+  /// Enhanced with additional metrics for better assessment.
   /// </summary>
   /// <param name="model">The trained prediction model.</param>
   /// <param name="testInputs">Test input data for prediction.</param>
   /// <param name="actualPrices">Actual prices for comparison.</param>
+  /// <param name="datasetName">Name of the dataset being evaluated (for logging).</param>
   /// <returns>ModelEvaluation containing performance metrics.</returns>
   let evaluateModel
     (model : GoldPredictionModel)
     (testInputs : PredictionInput seq)
     (actualPrices : float32[])
+    (datasetName : string option)
     =
     let predictions = predictBatch model testInputs
     let rSquared = calculateRSquared actualPrices predictions
     let mae = calculateMAE actualPrices predictions
     let rmse = calculateRMSE actualPrices predictions
     let mape = calculateMAPE actualPrices predictions
+    let smape = calculateSMAPE actualPrices predictions
+    let tmape = calculateTruncatedMAPE actualPrices predictions 100.0
+
+    // Log additional metrics if dataset name is provided
+    match datasetName with
+    | Some name ->
+      logInfo (
+        sprintf
+          "%s - %A: R²=%.4f, MAE=%.4f, RMSE=%.4f, MAPE=%.2f%%, sMAPE=%.2f%%, tMAPE=%.2f%%"
+          name
+          model.Algorithm
+          rSquared
+          mae
+          rmse
+          mape
+          smape
+          tmape
+      )
+    | None -> ()
 
     { RSquared = rSquared
       SharpeRatio = 0.0 // Sharpe ratio calculated separately in trading strategy
       MAE = mae
       RMSE = rmse
       MAPE = mape }
+
+  /// <summary>
+  /// Evaluates the performance of a trained model (backward compatibility).
+  /// </summary>
+  let evaluateModelDefault
+    (model : GoldPredictionModel)
+    (testInputs : PredictionInput seq)
+    (actualPrices : float32[])
+    =
+    evaluateModel model testInputs actualPrices None
 
   /// <summary>
   /// Creates prediction input from a gold data record.
@@ -455,7 +528,7 @@ module MachineLearning =
 
       let actualPrices = testData |> Array.map (fun r -> float32 r.Close)
 
-      let evaluation = evaluateModel model testInputs actualPrices
+      let evaluation = evaluateModel model testInputs actualPrices None
       results <- evaluation :: results
 
     // Calculate average metrics across folds
@@ -528,29 +601,31 @@ module MachineLearning =
       OnlineGradientDescentRegression ]
 
   /// <summary>
-  /// Calculates weights for ensemble models based on their cross-validation performance.
+  /// Calculates weights for ensemble models based on validation set performance.
   /// Excludes poorly performing models and uses multiple metrics for robust weighting.
+  /// Fixed: Uses independent validation set to avoid data leakage.
   /// </summary>
   /// <param name="mlContext">The ML context to use.</param>
-  /// <param name="trainingRecords">Training data for cross-validation.</param>
+  /// <param name="validationRecords">Independent validation data (not used in training).</param>
   /// <param name="models">List of trained models to weight.</param>
   /// <returns>List of weights corresponding to each model.</returns>
   let calculateEnsembleWeights
     (mlContext : MLContext)
-    (trainingRecords : GoldDataRecord[])
+    (validationRecords : GoldDataRecord[])
     (models : GoldPredictionModel list)
     =
     if models.Length = 0 then
       []
+    elif validationRecords.Length = 0 then
+      // If no validation data, use equal weights
+      logInfo "Warning: No validation data available, using equal weights"
+      models |> List.map (fun _ -> 1.0 / float models.Length)
     else
-      // Perform evaluation using a holdout set
-      let trainSize = int (float trainingRecords.Length * 0.8)
-      let validationData = trainingRecords.[trainSize..]
-
       let testInputs =
-        validationData |> Array.map createPredictionInput |> Array.toSeq
+        validationRecords |> Array.map createPredictionInput |> Array.toSeq
 
-      let actualPrices = validationData |> Array.map (fun r -> float32 r.Close)
+      let actualPrices =
+        validationRecords |> Array.map (fun r -> float32 r.Close)
 
       // Evaluate each model with multiple metrics
       let modelEvaluations =
@@ -564,54 +639,75 @@ module MachineLearning =
 
           model, rSquared, mae, rmse, mape)
 
-      // Debug: log individual model performances
+      // Debug: log individual model performances on validation set
+      logInfo "Validation set performance for ensemble weighting:"
       modelEvaluations
-      |> List.iter (fun (alg, r2, mae, rmse, mape) ->
-        logInfo (sprintf "  %A: R²=%.4f, MAPE=%.2f%%" alg r2 mape))
+      |> List.iter (fun (model, r2, mae, rmse, mape) ->
+        logInfo (
+          sprintf
+            "  %A: R²=%.4f, MAE=%.4f, RMSE=%.4f, MAPE=%.2f%%"
+            model.Algorithm
+            r2
+            mae
+            rmse
+            mape
+        ))
 
-      // Filter out poorly performing models
-      // Criteria: R² > 0.5 AND MAPE < 200% (only keep well-performing models)
+      // Filter out poorly performing and overfitting models
+      // Criteria:
+      // 1. R² > 0.0 (not negative, model must be better than naive mean)
+      // 2. MAPE < 50% (reasonable prediction error)
+      // 3. RMSE < MAE * 3 (not too many extreme outliers)
+      let isGoodModel (_, rSquared, mae, rmse, mape) =
+        rSquared > 0.0f
+        && mape < 50.0
+        && rmse < mae * 3.0f // RMSE should not be much larger than MAE (indicates outliers)
+
       let goodModels =
+        modelEvaluations |> List.filter isGoodModel
+
+      logInfo (
+        sprintf
+          "Models evaluation: %d total, %d good models (R²>0, MAPE<50%%)"
+          modelEvaluations.Length
+          goodModels.Length
+      )
+
+      // Calculate weights for ALL models (return same length as input)
+      // Good models get positive weights, bad models get 0.0
+      let allWeights =
         modelEvaluations
-        |> List.filter (fun (_, rSquared, _, _, mape) ->
-          rSquared > 0.5f && mape < 200.0)
+        |> List.map (fun (model, rSquared, mae, rmse, mape) ->
+          if isGoodModel (model, rSquared, mae, rmse, mape) then
+            // Calculate composite score for good models
+            let r2Score = max 0.0 (float rSquared) // Ensure non-negative
+            let maeScore = 1.0 / (1.0 + float mae) // Lower MAE = higher score
+            let mapeScore = 1.0 / (1.0 + mape / 100.0) // Lower MAPE = higher score
 
-      logInfo
-        $"Models evaluation: {modelEvaluations.Length} total, {goodModels.Length} good models"
+            // Weighted combination (R² has highest weight)
+            r2Score * 0.5 + maeScore * 0.25 + mapeScore * 0.25
+          else
+            // Bad models get zero weight
+            0.0)
 
-      if goodModels.Length = 0 then
+      // Normalize weights so they sum to 1 (only for good models)
+      let totalWeight = allWeights |> List.sum
+
+      if totalWeight = 0.0 || goodModels.Length = 0 then
         // If no good models, use equal weights for all models
         logInfo
           "Warning: No models met performance criteria, using equal weights"
 
         models |> List.map (fun _ -> 1.0 / float models.Length)
       else
-        // Calculate composite score for weighting
-        // Higher R² and lower error metrics get higher scores
-        let scores =
-          goodModels
-          |> List.map (fun (_, rSquared, mae, rmse, mape) ->
-            // Normalize and combine metrics
-            let r2Score = float rSquared // R² already 0-1
-            let maeScore = 1.0 / (1.0 + float mae) // Lower MAE = higher score
-            let mapeScore = 1.0 / (1.0 + mape / 100.0) // Lower MAPE = higher score
-
-            // Weighted combination (R² has highest weight)
-            r2Score * 0.5 + maeScore * 0.25 + mapeScore * 0.25)
-
-        // Normalize weights so they sum to 1
-        let totalScore = scores |> List.sum
-
-        if totalScore = 0.0 then
-          goodModels |> List.map (fun _ -> 1.0 / float goodModels.Length)
-        else
-          scores |> List.map (fun score -> score / totalScore)
+        // Normalize weights
+        allWeights |> List.map (fun w -> w / totalWeight)
 
   /// <summary>
   /// Trains an ensemble model using all available algorithms.
-  /// Attempts to train all algorithms but skips those that fail.
+  /// Fixed: Splits training data into train/validation sets before training to avoid data leakage.
   /// </summary>
-  /// <param name="trainingRecords">Array of training data records.</param>
+  /// <param name="trainingRecords">Array of training data records (will be split internally).</param>
   /// <param name="config">Configuration containing algorithm parameters.</param>
   /// <returns>Result containing trained ensemble model or error.</returns>
   let trainEnsembleModel
@@ -620,6 +716,20 @@ module MachineLearning =
     =
     try
       let mlContext = createMLContext ()
+      
+      // Split training data into train and validation sets BEFORE training
+      // This prevents data leakage in weight calculation
+      let trainSize = int (float trainingRecords.Length * 0.8)
+      let actualTrainData = trainingRecords.[.. trainSize - 1]
+      let validationData = trainingRecords.[trainSize..]
+
+      logInfo (
+        sprintf
+          "Split training data: %d for training, %d for validation"
+          actualTrainData.Length
+          validationData.Length
+      )
+
       let algorithms = getAllAlgorithms config
 
       let modelsAndAlgorithms =
@@ -633,10 +743,24 @@ module MachineLearning =
 
               None
             else
-              let model = trainModel mlContext trainingRecords alg config
+              // Train on actual training set only (not validation set)
+              let model = trainModel mlContext actualTrainData alg config
 
               match validateModel model with
-              | Ok validModel -> Some (alg, validModel)
+              | Ok validModel ->
+                // Evaluate on training set for comparison (to detect overfitting)
+                let trainInputs =
+                  actualTrainData
+                  |> Array.map createPredictionInput
+                  |> Array.toSeq
+
+                let trainPrices =
+                  actualTrainData |> Array.map (fun r -> float32 r.Close)
+
+                let _ =
+                  evaluateModel validModel trainInputs trainPrices (Some "Training Set")
+
+                Some (alg, validModel)
               | Error err ->
                 printfn $"Warning: Failed to train {alg}: {err}"
                 None
@@ -651,8 +775,8 @@ module MachineLearning =
       else
         let models = modelsAndAlgorithms |> List.map snd
 
-        // Calculate weights based on improved performance evaluation
-        let weights = calculateEnsembleWeights mlContext trainingRecords models
+        // Calculate weights based on INDEPENDENT validation set (not training set)
+        let weights = calculateEnsembleWeights mlContext validationData models
 
         // Filter models based on weights (exclude models with zero weight)
         let validModelsAndWeights =
@@ -743,7 +867,7 @@ module MachineLearning =
       ensemble.Models
       |> List.map (fun model ->
         let modelPredictions = predictBatch model testInputs
-        let evaluation = evaluateModel model testInputs actualPrices
+        let evaluation = evaluateModel model testInputs actualPrices (Some "Test Set")
         model.Algorithm, evaluation)
 
     { IndividualEvaluations = individualEvaluations

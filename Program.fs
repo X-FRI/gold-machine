@@ -155,7 +155,7 @@ module Program =
                         $"Ensemble RMSE: {ensembleEvaluation.EnsembleRMSE:F4}"
 
                       logInfo
-                        $"Ensemble MAPE: {ensembleEvaluation.EnsembleMAPE:P2}"
+                        $"Ensemble MAPE: {ensembleEvaluation.EnsembleMAPE:F2}%%"
 
                       // Log individual model performances
                       logInfo "Individual model performances:"
@@ -163,7 +163,7 @@ module Program =
                       ensembleEvaluation.IndividualEvaluations
                       |> List.iter (fun (alg, eval) ->
                         logInfo
-                          $"  {alg}: R²={eval.RSquared:F4}, MAE={eval.MAE:F4}, RMSE={eval.RMSE:F4}, MAPE={eval.MAPE:P2}")
+                          $"  {alg}: R²={eval.RSquared:F4}, MAE={eval.MAE:F4}, RMSE={eval.RMSE:F4}, MAPE={eval.MAPE:F2}%%")
 
                       // Continue with trading strategy using ensemble model
                       let currentRecord =
@@ -369,6 +369,7 @@ module Program =
                         validatedModel
                         testInputs
                         actualPrices
+                        (Some "Test Set")
 
                     logInfo (sprintf "Model R² Score: %.4f" evaluation.RSquared)
                     logInfo (sprintf "Model MAE: %.4f" evaluation.MAE)
