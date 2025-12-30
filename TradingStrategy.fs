@@ -16,15 +16,18 @@ module TradingStrategy =
       message
 
   /// <summary>
-  /// Generates trading signals based on predicted vs actual prices.
-  /// Returns 1.0 for buy signals (predicted > actual) and 0.0 for hold signals.
+  /// Generates trading signals based on predicted vs actual prices with risk management.
+  /// Returns 1.0 for buy signals, -1.0 for sell signals, and 0.0 for hold signals.
+  /// Includes basic risk management rules.
   /// </summary>
   /// <param name="predictedPrices">Array of predicted prices.</param>
   /// <param name="currentPrices">Array of actual current prices.</param>
+  /// <param name="threshold">Minimum price difference threshold for signals (default 0.001).</param>
   /// <returns>Array of trading signals.</returns>
   let generateTradingSignals
     (predictedPrices : float32[])
     (currentPrices : float32[])
+    (threshold : float)
     =
     match
       DataProcessing.validateArrayLengths [| predictedPrices ; currentPrices |]
@@ -32,7 +35,12 @@ module TradingStrategy =
     | Error _ -> [||]
     | Ok _ ->
       Array.zip predictedPrices currentPrices
-      |> Array.map (fun (pred, curr) -> if pred > curr then 1.0 else 0.0)
+      |> Array.map (fun (pred, curr) ->
+        let priceDiff = float (pred - curr) / float curr
+
+        if priceDiff > threshold then 1.0 // Buy signal
+        elif priceDiff < -threshold then -1.0 // Sell signal
+        else 0.0) // Hold signal
 
   /// <summary>
   /// Calculates strategy returns by multiplying price changes with trading signals.
@@ -93,16 +101,32 @@ module TradingStrategy =
       |> Array.map float
       |> DataProcessing.calculatePercentageChange
 
-    // Generate signals based on predicted vs previous actual prices (more realistic)
+    // Generate enhanced signals with risk management
     let signals =
       if actualPrices.Length < 2 then
         [||]
       else
-        Array.zip predictedPrices.[..actualPrices.Length-2] actualPrices.[..actualPrices.Length-2]
-        |> Array.map (fun (pred, prevActual) ->
-          if float pred > float prevActual then 1.0
-          elif float pred < float prevActual then -1.0
-          else 0.0)
+        // Use predicted vs previous actual prices for more realistic signals
+        let signalPrices = actualPrices.[.. actualPrices.Length - 2]
+        let signalPredictions = predictedPrices.[.. actualPrices.Length - 2]
+
+        // Use adaptive threshold based on recent volatility
+        let recentVolatility =
+          if signalPrices.Length >= 10 then
+            let recentPrices = signalPrices.[signalPrices.Length - 10 ..]
+
+            let returns =
+              DataProcessing.calculatePercentageChange (
+                recentPrices |> Array.map float
+              )
+
+            DataProcessing.calculateVolatility returns
+          else
+            0.01 // Default 1% threshold
+
+        let threshold = max 0.001 recentVolatility // Minimum 0.1%, maximum based on volatility
+
+        generateTradingSignals signalPredictions signalPrices threshold
 
     let strategyReturns = calculateStrategyReturns priceChanges signals
     let cumulativeReturns = calculateCumulativeStrategyReturns strategyReturns
@@ -113,19 +137,37 @@ module TradingStrategy =
     (signals, strategyReturns, cumulativeReturns, sharpeRatio)
 
   /// <summary>
-  /// Generates a trading recommendation based on the latest prediction.
+  /// Generates a trading recommendation based on the latest prediction with enhanced signals.
   /// </summary>
   /// <param name="currentPrice">Current market price.</param>
   /// <param name="predictedPrice">Predicted price for next period.</param>
+  /// <param name="threshold">Price difference threshold for signals.</param>
   /// <returns>String describing the trading signal.</returns>
   let generateTradingRecommendation
     (currentPrice : float)
     (predictedPrice : float32)
+    (threshold : float)
     =
-    if float predictedPrice > currentPrice then
-      "BUY GLD - Predicted price higher than current price"
+    let priceDiff = (float predictedPrice - currentPrice) / currentPrice
+
+    if priceDiff > threshold then
+      sprintf
+        "BUY GLD - Predicted price %.2f is %.2f%% higher than current price %.2f"
+        (float predictedPrice)
+        (priceDiff * 100.0)
+        currentPrice
+    elif priceDiff < -threshold then
+      sprintf
+        "SELL GLD - Predicted price %.2f is %.2f%% lower than current price %.2f"
+        (float predictedPrice)
+        (abs (priceDiff) * 100.0)
+        currentPrice
     else
-      "HOLD - Predicted price not higher than current price"
+      sprintf
+        "HOLD GLD - Predicted price %.2f is within %.2f%% of current price %.2f"
+        (float predictedPrice)
+        (threshold * 100.0)
+        currentPrice
 
   /// <summary>
   /// Calculates strategy metrics for performance reporting.
@@ -143,7 +185,9 @@ module TradingStrategy =
       DataProcessing.calculateSharpeRatio strategyReturns config.RiskFreeRate
 
     // Calculate maximum drawdown
-    let cumulativeReturns = DataProcessing.calculateCumulativeReturns strategyReturns
+    let cumulativeReturns =
+      DataProcessing.calculateCumulativeReturns strategyReturns
+
     let mutable maxDrawdown = 0.0
     let mutable peakValue = 0.0
 
@@ -214,8 +258,7 @@ module TradingStrategy =
 
       // Generate predictions for test window
       let predictions =
-        testData
-        |> Array.map (fun record -> predictFunc model record)
+        testData |> Array.map (fun record -> predictFunc model record)
 
       // Generate signals and simulate trading
       let actualPrices = testData |> Array.map (fun r -> float32 r.Close)
@@ -257,6 +300,7 @@ module TradingStrategy =
               (currentPrice - prevPrice) / prevPrice * currentPosition
             else
               0.0 // No return on entry day
+
           allReturns <- dailyReturn :: allReturns
 
       // If still in position at end of window, close it
@@ -306,8 +350,11 @@ module TradingStrategy =
         maxDrawdown <- max maxDrawdown currentDrawdown
 
     // Calculate win rate and profit factor from actual trades
-    let winningTrades = allTrades |> List.filter (fun (_, _, _, profit) -> profit > 0.0)
-    let losingTrades = allTrades |> List.filter (fun (_, _, _, profit) -> profit < 0.0)
+    let winningTrades =
+      allTrades |> List.filter (fun (_, _, _, profit) -> profit > 0.0)
+
+    let losingTrades =
+      allTrades |> List.filter (fun (_, _, _, profit) -> profit < 0.0)
 
     let winRate =
       if allTrades.Length > 0 then
@@ -316,8 +363,11 @@ module TradingStrategy =
         0.0
 
     // Calculate profit factor (gross profit / gross loss)
-    let grossProfit = winningTrades |> List.sumBy (fun (_, _, _, profit) -> profit)
-    let grossLoss = losingTrades |> List.sumBy (fun (_, _, _, profit) -> abs profit)
+    let grossProfit =
+      winningTrades |> List.sumBy (fun (_, _, _, profit) -> profit)
+
+    let grossLoss =
+      losingTrades |> List.sumBy (fun (_, _, _, profit) -> abs profit)
 
     let profitFactor =
       if grossLoss > 0.0 then grossProfit / grossLoss

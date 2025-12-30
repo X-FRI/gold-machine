@@ -74,7 +74,7 @@ module Program =
             | Error err -> return Error err
             | Ok validatedRecords ->
 
-              // Process data (calculate moving averages)
+              // Process data (calculate comprehensive technical indicators)
               logInfo "Processing data and calculating technical indicators..."
 
               let qualityValidatedRecords = validatedRecords // Skip quality validation for now
@@ -192,6 +192,7 @@ module Program =
                         TradingStrategy.generateTradingRecommendation
                           currentRecord.Close
                           predictedPrice
+                          0.005 // 0.5% threshold for signals
 
                       logInfo $"{recommendation}"
 
@@ -220,10 +221,13 @@ module Program =
                            sharpeRatio) =
                         TradingStrategy.evaluateStrategy
                           allPredictions
-                          (processedRecords |> Array.map (fun r -> float32 r.Close))
+                          (processedRecords
+                           |> Array.map (fun r -> float32 r.Close))
                           config
 
-                      logInfo (sprintf "Strategy Sharpe Ratio: %.4f" sharpeRatio)
+                      logInfo (
+                        sprintf "Strategy Sharpe Ratio: %.4f" sharpeRatio
+                      )
 
                       // Perform walk-forward backtesting with ensemble
                       logInfo "Performing walk-forward backtesting..."
@@ -234,23 +238,55 @@ module Program =
                           100 // Initial training size
                           20 // Test window size
                           (fun data ->
-                            match MachineLearning.trainEnsembleModel data config with
-                            | Ok model -> model
-                            | Error err ->
-                              match err with
-                              | ModelTrainingFailed msg -> failwith $"Backtest training failed: {msg}"
-                              | _ -> failwith "Backtest training failed: Unknown error")
+                            let mlContext = MachineLearning.createMLContext ()
+
+                            MachineLearning.trainModel
+                              mlContext
+                              data
+                              config.MLAlgorithm
+                              config)
                           (fun model record ->
-                            let input = MachineLearning.createPredictionInput record
-                            MachineLearning.predictWithEnsemble model input)
+                            let input =
+                              MachineLearning.createPredictionInput record
+
+                            MachineLearning.predict model input)
                           config
 
-                      logInfo (sprintf "Backtest Total Return: %.2f%%" backtestResult.TotalReturn)
-                      logInfo (sprintf "Backtest Annualized Return: %.2f%%" backtestResult.AnnualizedReturn)
-                      logInfo (sprintf "Backtest Sharpe Ratio: %.4f" backtestResult.SharpeRatio)
-                      logInfo (sprintf "Backtest Max Drawdown: %.2f%%" backtestResult.MaxDrawdown)
-                      logInfo (sprintf "Backtest Win Rate: %.2f%%" (backtestResult.WinRate * 100.0))
-                      logInfo (sprintf "Backtest Profit Factor: %.2f" backtestResult.ProfitFactor)
+                      logInfo (
+                        sprintf
+                          "Backtest Total Return: %.2f%%"
+                          backtestResult.TotalReturn
+                      )
+
+                      logInfo (
+                        sprintf
+                          "Backtest Annualized Return: %.2f%%"
+                          backtestResult.AnnualizedReturn
+                      )
+
+                      logInfo (
+                        sprintf
+                          "Backtest Sharpe Ratio: %.4f"
+                          backtestResult.SharpeRatio
+                      )
+
+                      logInfo (
+                        sprintf
+                          "Backtest Max Drawdown: %.2f%%"
+                          backtestResult.MaxDrawdown
+                      )
+
+                      logInfo (
+                        sprintf
+                          "Backtest Win Rate: %.2f%%"
+                          (backtestResult.WinRate * 100.0)
+                      )
+
+                      logInfo (
+                        sprintf
+                          "Backtest Profit Factor: %.2f"
+                          backtestResult.ProfitFactor
+                      )
 
                       match
                         Visualization.generateAnalysisCharts
@@ -397,7 +433,9 @@ module Program =
                         20 // Test window size
                         backtestTrainModel
                         (fun model record ->
-                          let input = MachineLearning.createPredictionInput record
+                          let input =
+                            MachineLearning.createPredictionInput record
+
                           MachineLearning.predict model input)
                         config
 
@@ -501,6 +539,7 @@ module Program =
                         TradingStrategy.generateTradingRecommendation
                           latestData.Close
                           predictedPrice
+                          0.005 // 0.5% threshold for signals
 
                       logInfo (
                         sprintf

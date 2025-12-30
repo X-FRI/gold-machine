@@ -95,79 +95,73 @@ module DataProcessing =
         not (String.IsNullOrWhiteSpace item.Date) && item.Close > 0.0)
       |> Array.map (fun item ->
         { Date = DateTime.Parse item.Date
+          Open = item.Open
+          High = item.High
+          Low = item.Low
           Close = item.Close
-          MA3 = 0.0f // Will be calculated later
-          MA9 = 0.0f }) // Will be calculated later
+          Volume = item.Volume
+          Amount = item.Amount
+          // Moving Averages (will be calculated later)
+          MA3 = 0.0f
+          MA5 = 0.0f
+          MA9 = 0.0f
+          MA20 = 0.0f
+          EMA12 = 0.0f
+          EMA26 = 0.0f
+          // Momentum Indicators (will be calculated later)
+          RSI = 0.0f
+          MACD = 0.0f
+          MACDSignal = 0.0f
+          MACDHistogram = 0.0f
+          // Volatility Indicators (will be calculated later)
+          ATR = 0.0f
+          BollingerUpper = 0.0f
+          BollingerMiddle = 0.0f
+          BollingerLower = 0.0f
+          Volatility = 0.0f
+          // Price Change Indicators
+          ChangePercent = float32 item.ChangePercent
+          ChangeAmount = float32 item.ChangeAmount
+          // Volume Indicators (will be calculated later)
+          OBV = 0.0f
+          VWAP = 0.0f })
       |> Array.sortBy (fun r -> r.Date)
     | SGE rawSGEData ->
       rawSGEData
       |> Array.filter (fun item -> item.Close > 0.0)
       |> Array.map (fun item ->
         { Date = item.Date
-          Close = item.Close // Use close price for consistency
-          MA3 = 0.0f // Will be calculated later
-          MA9 = 0.0f }) // Will be calculated later
+          Open = item.Open
+          High = item.High
+          Low = item.Low
+          Close = item.Close
+          Volume = 0L // SGE data doesn't have volume
+          Amount = 0.0 // SGE data doesn't have amount
+          // Moving Averages (will be calculated later)
+          MA3 = 0.0f
+          MA5 = 0.0f
+          MA9 = 0.0f
+          MA20 = 0.0f
+          EMA12 = 0.0f
+          EMA26 = 0.0f
+          // Momentum Indicators (will be calculated later)
+          RSI = 0.0f
+          MACD = 0.0f
+          MACDSignal = 0.0f
+          MACDHistogram = 0.0f
+          // Volatility Indicators (will be calculated later)
+          ATR = 0.0f
+          BollingerUpper = 0.0f
+          BollingerMiddle = 0.0f
+          BollingerLower = 0.0f
+          Volatility = 0.0f
+          // Price Change Indicators (will be calculated later for SGE)
+          ChangePercent = 0.0f
+          ChangeAmount = 0.0f
+          // Volume Indicators (will be calculated later)
+          OBV = 0.0f
+          VWAP = 0.0f })
       |> Array.sortBy (fun r -> r.Date)
-
-  /// <summary>
-  /// Processes raw gold data records by calculating moving averages.
-  /// Aligns the data to ensure all records have valid moving average values.
-  /// </summary>
-  /// <param name="records">Array of gold data records with raw prices.</param>
-  /// <returns>Result containing array of processed records or error.</returns>
-  let processGoldData (records : GoldDataRecord[]) =
-    if records.Length < 9 then
-      Error (
-        DataAcquisitionFailed
-          $"Insufficient data for moving averages: {records.Length} records, minimum 9 required"
-      )
-    else
-      let closeValues = records |> Array.map (fun r -> r.Close)
-
-      match
-        calculateMovingAverage closeValues 3,
-        calculateMovingAverage closeValues 9
-      with
-      | Ok ma3Values, Ok ma9Values ->
-        let ma3Float32 = ma3Values |> Array.map float32
-        let ma9Float32 = ma9Values |> Array.map float32
-
-        // Align data: moving averages reduce the number of data points
-        let offset3 = closeValues.Length - ma3Float32.Length
-        let offset9 = closeValues.Length - ma9Float32.Length
-        let maxOffset = max offset3 offset9
-        let alignedLength = closeValues.Length - maxOffset
-
-        Ok (
-          Array.init alignedLength (fun i ->
-            let dataIndex = i + maxOffset
-
-            { records.[dataIndex] with
-                MA3 =
-                  if dataIndex >= offset3 then
-                    ma3Float32.[dataIndex - offset3]
-                  else
-                    0.0f
-                MA9 =
-                  if dataIndex >= offset9 then
-                    ma9Float32.[dataIndex - offset9]
-                  else
-                    0.0f })
-        )
-      | Error err, _ -> Error err
-      | _, Error err -> Error err
-
-  /// <summary>
-  /// Splits data into training and testing sets based on the specified ratio.
-  /// </summary>
-  /// <param name="records">Array of data records to split.</param>
-  /// <param name="trainRatio">Ratio of data to use for training (0.0 to 1.0).</param>
-  /// <returns>Tuple of (training data, testing data).</returns>
-  let splitData (records : 'T[]) (trainRatio : float) =
-    let trainSize = int (float records.Length * trainRatio)
-    let trainData = records.[.. trainSize - 1]
-    let testData = records.[trainSize..]
-    trainData, testData
 
   /// <summary>
   /// Validates that data arrays have compatible lengths for operations.
@@ -188,6 +182,396 @@ module DataProcessing =
       else
         Ok firstLength
 
+  /// <summary>
+  /// Processes raw gold data records by calculating comprehensive technical indicators.
+  /// Aligns the data to ensure all records have valid indicator values.
+  /// </summary>
+  /// <param name="records">Array of gold data records with raw prices.</param>
+  /// <returns>Result containing array of processed records or error.</returns>
+  let processGoldData (records : GoldDataRecord[]) =
+    // Define technical indicator functions locally
+    let calculateEMA (values : float[]) (period : int) =
+      if values.Length < period then
+        Error (
+          DataAcquisitionFailed
+            $"Insufficient data for EMA calculation: {values.Length} values, minimum {period} required"
+        )
+      else
+        let multiplier = 2.0 / (float period + 1.0)
+        let ema = Array.zeroCreate values.Length
+
+        // Initialize first EMA value as SMA
+        let initialSMA = values.[.. period - 1] |> Array.average
+        ema.[period - 1] <- initialSMA
+
+        // Calculate subsequent EMA values
+        for i in period .. values.Length - 1 do
+          ema.[i] <- (values.[i] - ema.[i - 1]) * multiplier + ema.[i - 1]
+
+        Ok ema.[period - 1 ..]
+
+    let calculateRSI (values : float[]) (period : int) =
+      if values.Length < period + 1 then
+        Error (
+          DataAcquisitionFailed
+            $"Insufficient data for RSI calculation: {values.Length} values, minimum {period + 1} required"
+        )
+      else
+        // Calculate price changes
+        let changes = Array.zeroCreate (values.Length - 1)
+
+        for i in 1 .. values.Length - 1 do
+          changes.[i - 1] <- values.[i] - values.[i - 1]
+
+        // Calculate gains and losses
+        let gains = changes |> Array.map (fun c -> if c > 0.0 then c else 0.0)
+        let losses = changes |> Array.map (fun c -> if c < 0.0 then -c else 0.0)
+
+        let rsi = Array.zeroCreate (changes.Length - period + 1)
+
+        for i in period - 1 .. changes.Length - 1 do
+          let avgGain =
+            if i = period - 1 then
+              gains.[.. period - 1] |> Array.average
+            else
+              (rsi.[i - period] * float (period - 1) + gains.[i]) / float period
+
+          let avgLoss =
+            if i = period - 1 then
+              losses.[.. period - 1] |> Array.average
+            else
+              (rsi.[i - period + 1] * float (period - 1) + losses.[i])
+              / float period
+
+          let rs = if avgLoss = 0.0 then 100.0 else avgGain / avgLoss
+          rsi.[i - period + 1] <- 100.0 - (100.0 / (1.0 + rs))
+
+        Ok rsi
+
+    let calculateMACD (values : float[]) =
+      if values.Length < 26 then
+        Error (
+          DataAcquisitionFailed
+            $"Insufficient data for MACD calculation: {values.Length} values, minimum 26 required"
+        )
+      else
+        match calculateEMA values 12, calculateEMA values 26 with
+        | Ok ema12, Ok ema26 ->
+          // Align EMA arrays
+          let offset = ema12.Length - ema26.Length
+          let alignedEMA12 = ema12.[offset..]
+          let alignedEMA26 = ema26
+
+          // Calculate MACD line
+          let macd =
+            Array.zip alignedEMA12 alignedEMA26
+            |> Array.map (fun (e12, e26) -> e12 - e26)
+
+          // Calculate signal line (9-period EMA of MACD)
+          match calculateEMA macd 9 with
+          | Ok signal ->
+            let signalOffset = macd.Length - signal.Length
+            let alignedMACD = macd.[signalOffset..]
+
+            // Calculate histogram
+            let histogram =
+              Array.zip alignedMACD signal |> Array.map (fun (m, s) -> m - s)
+
+            Ok (alignedMACD, signal, histogram)
+          | Error err -> Error err
+        | Error err, _ -> Error err
+        | _, Error err -> Error err
+
+    let calculateATR
+      (highs : float[])
+      (lows : float[])
+      (closes : float[])
+      (period : int)
+      =
+      match
+        validateArrayLengths
+          [| highs
+             lows
+             closes |]
+      with
+      | Error err -> Error err
+      | Ok _ ->
+        if closes.Length < period + 1 then
+          Error (
+            DataAcquisitionFailed
+              $"Insufficient data for ATR calculation: {closes.Length} values, minimum {period + 1} required"
+          )
+        else
+          // Calculate True Range for each period
+          let tr = Array.zeroCreate (closes.Length - 1)
+
+          for i in 1 .. closes.Length - 1 do
+            let tr1 = highs.[i] - lows.[i]
+            let tr2 = abs (highs.[i] - closes.[i - 1])
+            let tr3 = abs (lows.[i] - closes.[i - 1])
+            tr.[i - 1] <- max tr1 (max tr2 tr3)
+
+          // Calculate ATR using exponential moving average
+          let atr = Array.zeroCreate (tr.Length - period + 1)
+
+          // Initialize first ATR value
+          atr.[0] <- tr.[.. period - 1] |> Array.average
+
+          // Calculate subsequent ATR values
+          for i in period .. tr.Length - 1 do
+            atr.[i - period + 1] <-
+              (atr.[i - period] * float (period - 1) + tr.[i]) / float period
+
+          Ok atr
+
+    let calculateBollingerBands
+      (values : float[])
+      (period : int)
+      (stdDev : float)
+      =
+      if values.Length < period then
+        Error (
+          DataAcquisitionFailed
+            $"Insufficient data for Bollinger Bands calculation: {values.Length} values, minimum {period} required"
+        )
+      else
+        let bands = Array.zeroCreate (values.Length - period + 1)
+
+        for i in 0 .. values.Length - period do
+          let window = values.[i .. i + period - 1]
+          let middle = Array.average window
+          let std = Statistics.StandardDeviation window
+          let upper = middle + stdDev * std
+          let lower = middle - stdDev * std
+
+          bands.[i] <- (upper, middle, lower)
+
+        let upperBand = bands |> Array.map (fun (u, _, _) -> u)
+        let middleBand = bands |> Array.map (fun (_, m, _) -> m)
+        let lowerBand = bands |> Array.map (fun (_, _, l) -> l)
+
+        Ok (upperBand, middleBand, lowerBand)
+
+    let calculateHistoricalVolatility (values : float[]) (period : int) =
+      if values.Length < period + 1 then
+        Error (
+          DataAcquisitionFailed
+            $"Insufficient data for volatility calculation: {values.Length} values, minimum {period + 1} required"
+        )
+      else
+        // Calculate logarithmic returns
+        let returns = Array.zeroCreate (values.Length - 1)
+
+        for i in 1 .. values.Length - 1 do
+          returns.[i - 1] <- log (values.[i] / values.[i - 1])
+
+        // Calculate rolling volatility
+        let volatility = Array.zeroCreate (returns.Length - period + 1)
+
+        for i in 0 .. returns.Length - period do
+          let window = returns.[i .. i + period - 1]
+          volatility.[i] <- Statistics.StandardDeviation window
+
+        Ok volatility
+
+    let calculateOBV (closes : float[]) (volumes : int64[]) =
+      match validateArrayLengths [| closes ; volumes |> Array.map float |] with
+      | Error err -> Error err
+      | Ok _ ->
+        let obv = Array.zeroCreate closes.Length
+        obv.[0] <- float volumes.[0]
+
+        for i in 1 .. closes.Length - 1 do
+          if closes.[i] > closes.[i - 1] then
+            obv.[i] <- obv.[i - 1] + float volumes.[i]
+          elif closes.[i] < closes.[i - 1] then
+            obv.[i] <- obv.[i - 1] - float volumes.[i]
+          else
+            obv.[i] <- obv.[i - 1]
+
+        Ok obv
+
+    let calculateVWAP
+      (highs : float[])
+      (lows : float[])
+      (closes : float[])
+      (volumes : int64[])
+      =
+      match
+        validateArrayLengths
+          [| highs
+             lows
+             closes
+             volumes |> Array.map float |]
+      with
+      | Error err -> Error err
+      | Ok _ ->
+        let vwap = Array.zeroCreate highs.Length
+
+        for i in 0 .. highs.Length - 1 do
+          let typicalPrice = (highs.[i] + lows.[i] + closes.[i]) / 3.0
+
+          if i = 0 then
+            vwap.[i] <- typicalPrice
+          else
+            let cumulativeTPV =
+              vwap.[i - 1] * float (i) + typicalPrice * float volumes.[i]
+
+            let cumulativeVolume = float (i + 1) * float volumes.[i] // Simplified calculation
+            vwap.[i] <- cumulativeTPV / cumulativeVolume
+
+        Ok vwap
+
+    if records.Length < 50 then // Need sufficient data for all indicators
+      Error (
+        DataAcquisitionFailed
+          $"Insufficient data for technical indicators: {records.Length} records, minimum 50 required"
+      )
+    else
+      // Extract price arrays
+      let closeValues = records |> Array.map (fun r -> r.Close)
+      let highValues = records |> Array.map (fun r -> r.High)
+      let lowValues = records |> Array.map (fun r -> r.Low)
+      let openValues = records |> Array.map (fun r -> r.Open)
+      let volumeValues = records |> Array.map (fun r -> r.Volume)
+
+      // Calculate only the indicators we need
+      let ma3Result = calculateMovingAverage closeValues 3
+      let ma9Result = calculateMovingAverage closeValues 9
+      let ma20Result = calculateMovingAverage closeValues 20
+      let rsiResult = calculateRSI closeValues 14
+      let atrResult = calculateATR highValues lowValues closeValues 14
+      let volResult = calculateHistoricalVolatility closeValues 14
+
+      // Check if all calculations succeeded
+      let allResults =
+        [ ma3Result
+          ma9Result
+          ma20Result
+          rsiResult
+          atrResult
+          volResult ]
+
+      let hasErrors =
+        allResults
+        |> List.exists (function
+          | Error _ -> true
+          | _ -> false)
+
+      if hasErrors then
+        Error (DataAcquisitionFailed "Failed to calculate technical indicators")
+      else
+        // Extract successful results
+        let ma3 =
+          match ma3Result with
+          | Ok arr -> arr
+          | _ -> [||]
+
+        let ma9 =
+          match ma9Result with
+          | Ok arr -> arr
+          | _ -> [||]
+
+        let ma20 =
+          match ma20Result with
+          | Ok arr -> arr
+          | _ -> [||]
+
+        let rsi =
+          match rsiResult with
+          | Ok arr -> arr
+          | _ -> [||]
+
+        let atr =
+          match atrResult with
+          | Ok arr -> arr
+          | _ -> [||]
+
+        let volatility =
+          match volResult with
+          | Ok arr -> arr
+          | _ -> [||]
+
+        // Find the maximum offset to align all indicators
+        let offsets =
+          [ closeValues.Length - ma3.Length
+            closeValues.Length - ma9.Length
+            closeValues.Length - ma20.Length
+            closeValues.Length - rsi.Length
+            closeValues.Length - atr.Length
+            closeValues.Length - volatility.Length ]
+
+        let maxOffset = if offsets.Length > 0 then offsets |> List.max else 0
+        let alignedLength = closeValues.Length - maxOffset
+
+        Ok (
+          Array.init alignedLength (fun i ->
+            let dataIndex = i + maxOffset
+
+            { records.[dataIndex] with
+                // Moving Averages
+                MA3 =
+                  if dataIndex >= closeValues.Length - ma3.Length then
+                    float32 ma3.[dataIndex - (closeValues.Length - ma3.Length)]
+                  else
+                    0.0f
+                MA5 = 0.0f // Not used
+                MA9 =
+                  if dataIndex >= closeValues.Length - ma9.Length then
+                    float32 ma9.[dataIndex - (closeValues.Length - ma9.Length)]
+                  else
+                    0.0f
+                MA20 =
+                  if dataIndex >= closeValues.Length - ma20.Length then
+                    float32
+                      ma20.[dataIndex - (closeValues.Length - ma20.Length)]
+                  else
+                    0.0f
+                EMA12 = 0.0f // Not used
+                EMA26 = 0.0f // Not used
+                // Momentum Indicators
+                RSI =
+                  if dataIndex >= closeValues.Length - rsi.Length then
+                    float32 rsi.[dataIndex - (closeValues.Length - rsi.Length)]
+                  else
+                    0.0f
+                MACD = 0.0f // Not used
+                MACDSignal = 0.0f // Not used
+                MACDHistogram = 0.0f // Not used
+                // Volatility Indicators
+                ATR =
+                  if dataIndex >= closeValues.Length - atr.Length then
+                    float32 atr.[dataIndex - (closeValues.Length - atr.Length)]
+                  else
+                    0.0f
+                BollingerUpper = 0.0f // Not used
+                BollingerMiddle = 0.0f // Not used
+                BollingerLower = 0.0f // Not used
+                Volatility =
+                  if dataIndex >= closeValues.Length - volatility.Length then
+                    float32
+                      volatility.[dataIndex
+                                  - (closeValues.Length - volatility.Length)]
+                  else
+                    0.0f
+                // Volume Indicators (set to 0 for now)
+                OBV = 0.0f
+                VWAP = 0.0f })
+        )
+
+  /// <summary>
+  /// Splits data into training and testing sets based on the specified ratio.
+  /// </summary>
+  /// <param name="records">Array of data records to split.</param>
+  /// <param name="trainRatio">Ratio of data to use for training (0.0 to 1.0).</param>
+  /// <returns>Tuple of (training data, testing data).</returns>
+  let splitData (records : 'T[]) (trainRatio : float) =
+    let trainSize = int (float records.Length * trainRatio)
+    let trainData = records.[.. trainSize - 1]
+    let testData = records.[trainSize..]
+    trainData, testData
+
+  /// <summary>
   /// <summary>
   /// Performs comprehensive data quality checks on gold price data.
   /// </summary>
@@ -299,17 +683,7 @@ module DataProcessing =
 
         Ok filteredRecords
 
-  /// <summary>
-  /// Performs data imputation for missing values using interpolation.
-  /// </summary>
-  /// <param name="records">Array of gold data records.</param>
-  /// <returns>Result containing imputed records or error.</returns>
-  let imputeMissingValues (records : GoldDataRecord[]) =
-    // For now, just validate that we don't have missing values
-    // In a real system, you might interpolate missing prices
-    let hasMissing = records |> Array.exists (fun r -> r.Close = 0.0)
-
-    if hasMissing then
-      Error (DataAcquisitionFailed "Missing values detected in price data")
-    else
-      Ok records
+/// <summary>
+/// <summary>
+/// <summary>
+/// <summary>

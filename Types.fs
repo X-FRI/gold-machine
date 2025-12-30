@@ -6,14 +6,24 @@ open Newtonsoft.Json
 
 /// <summary>
 /// Represents the input data for price prediction models.
-/// Contains moving averages used as features for machine learning.
+/// Contains carefully selected technical indicators as features for machine learning.
 /// </summary>
 [<CLIMutable>]
 type PredictionInput =
   { [<LoadColumn(0)>]
     MA3 : float32
     [<LoadColumn(1)>]
-    MA9 : float32 }
+    MA9 : float32
+    [<LoadColumn(2)>]
+    MA20 : float32
+    [<LoadColumn(3)>]
+    RSI : float32
+    [<LoadColumn(4)>]
+    ATR : float32
+    [<LoadColumn(5)>]
+    Volatility : float32
+    [<LoadColumn(6)>]
+    ChangePercent : float32 }
 
 /// <summary>
 /// Represents the output from a price prediction model.
@@ -24,7 +34,7 @@ type PredictionOutput = { Score : float32 }
 
 /// <summary>
 /// Represents training data for machine learning models.
-/// Includes features (moving averages) and the target label (actual price).
+/// Includes carefully selected technical indicators and the target label (actual price).
 /// </summary>
 [<CLIMutable>]
 type TrainingData =
@@ -33,6 +43,16 @@ type TrainingData =
     [<LoadColumn(1)>]
     MA9 : float32
     [<LoadColumn(2)>]
+    MA20 : float32
+    [<LoadColumn(3)>]
+    RSI : float32
+    [<LoadColumn(4)>]
+    ATR : float32
+    [<LoadColumn(5)>]
+    Volatility : float32
+    [<LoadColumn(6)>]
+    ChangePercent : float32
+    [<LoadColumn(7)>]
     Label : float32 }
 
 /// <summary>
@@ -104,24 +124,69 @@ type EnsembleEvaluation =
     SharpeRatio : float }
 
 /// <summary>
-/// Represents a single record of gold price data.
-/// Contains the date, closing price, and calculated moving averages.
+/// Represents a single record of gold price data with comprehensive technical indicators.
+/// Contains OHLCV data and calculated technical indicators for advanced analysis.
 /// </summary>
 type GoldDataRecord =
   { Date : DateTime
+    Open : float
+    High : float
+    Low : float
     Close : float
+    Volume : int64
+    Amount : float
+    // Moving Averages
     MA3 : float32
-    MA9 : float32 }
+    MA5 : float32
+    MA9 : float32
+    MA20 : float32
+    EMA12 : float32
+    EMA26 : float32
+    // Momentum Indicators
+    RSI : float32
+    MACD : float32
+    MACDSignal : float32
+    MACDHistogram : float32
+    // Volatility Indicators
+    ATR : float32
+    BollingerUpper : float32
+    BollingerMiddle : float32
+    BollingerLower : float32
+    Volatility : float32
+    // Price Change Indicators
+    ChangePercent : float32
+    ChangeAmount : float32
+    // Volume Indicators
+    OBV : float32
+    VWAP : float32 }
 
 /// <summary>
 /// Represents raw data retrieved from the gold ETF API.
-/// Contains date and closing price information.
+/// Contains comprehensive OHLCV and derived metrics.
 /// </summary>
 type RawGoldETFData =
   { [<JsonProperty("日期")>]
     Date : string
+    [<JsonProperty("开盘")>]
+    Open : float
+    [<JsonProperty("最高")>]
+    High : float
+    [<JsonProperty("最低")>]
+    Low : float
     [<JsonProperty("收盘")>]
-    Close : float }
+    Close : float
+    [<JsonProperty("成交量")>]
+    Volume : int64
+    [<JsonProperty("成交额")>]
+    Amount : float
+    [<JsonProperty("振幅")>]
+    Amplitude : float
+    [<JsonProperty("涨跌幅")>]
+    ChangePercent : float
+    [<JsonProperty("涨跌额")>]
+    ChangeAmount : float
+    [<JsonProperty("换手率")>]
+    TurnoverRate : float }
 
 /// <summary>
 /// Represents raw data retrieved from the Shanghai Gold Exchange API.

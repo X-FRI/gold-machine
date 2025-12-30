@@ -12,6 +12,15 @@ open Microsoft.ML.Trainers
 module MachineLearning =
 
   /// <summary>
+  /// Simple logging function for machine learning operations.
+  /// </summary>
+  let logInfo (message : string) =
+    printfn
+      "[%s] INFO: %s"
+      (System.DateTime.Now.ToString ("yyyy-MM-dd HH:mm:ss"))
+      message
+
+  /// <summary>
   /// Creates a new ML context with a fixed seed for reproducible results.
   /// </summary>
   /// <returns>A configured MLContext instance.</returns>
@@ -36,6 +45,11 @@ module MachineLearning =
       |> Array.map (fun r ->
         { MA3 = r.MA3
           MA9 = r.MA9
+          MA20 = r.MA20
+          RSI = r.RSI
+          ATR = r.ATR
+          Volatility = r.Volatility
+          ChangePercent = r.ChangePercent
           Label = float32 r.Close })
       |> Array.toSeq
 
@@ -45,13 +59,35 @@ module MachineLearning =
       match algorithm with
       | LinearRegression ->
         (EstimatorChain()
-          .Append(mlContext.Transforms.Concatenate ("Features", "MA3", "MA9"))
+          .Append(
+            mlContext.Transforms.Concatenate (
+              "Features",
+              "MA3",
+              "MA9",
+              "MA20",
+              "RSI",
+              "ATR",
+              "Volatility",
+              "ChangePercent"
+            )
+          )
           .Append(mlContext.Regression.Trainers.Sdca ())
           .Fit (trainData))
         :> ITransformer
       | FastTreeRegression fastTreeParams ->
         (EstimatorChain()
-          .Append(mlContext.Transforms.Concatenate ("Features", "MA3", "MA9"))
+          .Append(
+            mlContext.Transforms.Concatenate (
+              "Features",
+              "MA3",
+              "MA9",
+              "MA20",
+              "RSI",
+              "ATR",
+              "Volatility",
+              "ChangePercent"
+            )
+          )
           .Append(
             mlContext.Regression.Trainers.FastTree (
               numberOfTrees = fastTreeParams.NumberOfTrees,
@@ -63,7 +99,18 @@ module MachineLearning =
         :> ITransformer
       | FastForestRegression fastForestParams ->
         (EstimatorChain()
-          .Append(mlContext.Transforms.Concatenate ("Features", "MA3", "MA9"))
+          .Append(
+            mlContext.Transforms.Concatenate (
+              "Features",
+              "MA3",
+              "MA9",
+              "MA20",
+              "RSI",
+              "ATR",
+              "Volatility",
+              "ChangePercent"
+            )
+          )
           .Append(
             mlContext.Regression.Trainers.FastForest (
               numberOfTrees = fastForestParams.NumberOfTrees,
@@ -74,7 +121,18 @@ module MachineLearning =
         :> ITransformer
       | OnlineGradientDescentRegression ->
         (EstimatorChain()
-          .Append(mlContext.Transforms.Concatenate ("Features", "MA3", "MA9"))
+          .Append(
+            mlContext.Transforms.Concatenate (
+              "Features",
+              "MA3",
+              "MA9",
+              "MA20",
+              "RSI",
+              "ATR",
+              "Volatility",
+              "ChangePercent"
+            )
+          )
           .Append(mlContext.Regression.Trainers.OnlineGradientDescent ())
           .Fit (trainData))
         :> ITransformer
@@ -217,10 +275,15 @@ module MachineLearning =
   /// Creates prediction input from a gold data record.
   /// </summary>
   /// <param name="record">The gold data record to convert.</param>
-  /// <returns>Prediction input with moving averages as features.</returns>
+  /// <returns>Prediction input with comprehensive technical indicators as features.</returns>
   let createPredictionInput (record : GoldDataRecord) =
     { MA3 = record.MA3
-      MA9 = record.MA9 }
+      MA9 = record.MA9
+      MA20 = record.MA20
+      RSI = record.RSI
+      ATR = record.ATR
+      Volatility = record.Volatility
+      ChangePercent = record.ChangePercent }
 
   /// <summary>
   /// Assesses the health of a model based on its evaluation metrics.
@@ -441,7 +504,12 @@ module MachineLearning =
     try
       let testInput =
         { MA3 = 1.0f
-          MA9 = 1.0f }
+          MA9 = 1.0f
+          MA20 = 1.0f
+          RSI = 50.0f
+          ATR = 1.0f
+          Volatility = 0.01f
+          ChangePercent = 0.0f }
 
       predict model testInput |> ignore
       Ok model
@@ -461,7 +529,7 @@ module MachineLearning =
 
   /// <summary>
   /// Calculates weights for ensemble models based on their cross-validation performance.
-  /// Uses R-squared scores to determine relative weights, with higher performing models getting higher weights.
+  /// Excludes poorly performing models and uses multiple metrics for robust weighting.
   /// </summary>
   /// <param name="mlContext">The ML context to use.</param>
   /// <param name="trainingRecords">Training data for cross-validation.</param>
@@ -475,9 +543,8 @@ module MachineLearning =
     if models.Length = 0 then
       []
     else
-      // Perform quick evaluation using a holdout set
+      // Perform evaluation using a holdout set
       let trainSize = int (float trainingRecords.Length * 0.8)
-      let trainData = trainingRecords.[.. trainSize - 1]
       let validationData = trainingRecords.[trainSize..]
 
       let testInputs =
@@ -485,22 +552,60 @@ module MachineLearning =
 
       let actualPrices = validationData |> Array.map (fun r -> float32 r.Close)
 
-      let performances =
+      // Evaluate each model with multiple metrics
+      let modelEvaluations =
         models
         |> List.map (fun model ->
           let predictions = predictBatch model testInputs
           let rSquared = calculateRSquared actualPrices predictions
-          // Ensure R-squared is non-negative for weighting
-          max 0.0f rSquared)
+          let mae = calculateMAE actualPrices predictions
+          let rmse = calculateRMSE actualPrices predictions
+          let mape = calculateMAPE actualPrices predictions
 
-      // Normalize weights so they sum to 1
-      let totalPerformance = performances |> List.sum |> float
+          model, rSquared, mae, rmse, mape)
 
-      if totalPerformance = 0.0 then
-        // If all models have 0 R-squared, use equal weights
+      // Debug: log individual model performances
+      modelEvaluations
+      |> List.iter (fun (alg, r2, mae, rmse, mape) ->
+        logInfo (sprintf "  %A: R²=%.4f, MAPE=%.2f%%" alg r2 mape))
+
+      // Filter out poorly performing models
+      // Criteria: R² > 0.5 AND MAPE < 200% (only keep well-performing models)
+      let goodModels =
+        modelEvaluations
+        |> List.filter (fun (_, rSquared, _, _, mape) ->
+          rSquared > 0.5f && mape < 200.0)
+
+      logInfo
+        $"Models evaluation: {modelEvaluations.Length} total, {goodModels.Length} good models"
+
+      if goodModels.Length = 0 then
+        // If no good models, use equal weights for all models
+        logInfo
+          "Warning: No models met performance criteria, using equal weights"
+
         models |> List.map (fun _ -> 1.0 / float models.Length)
       else
-        performances |> List.map (fun p -> float p / totalPerformance)
+        // Calculate composite score for weighting
+        // Higher R² and lower error metrics get higher scores
+        let scores =
+          goodModels
+          |> List.map (fun (_, rSquared, mae, rmse, mape) ->
+            // Normalize and combine metrics
+            let r2Score = float rSquared // R² already 0-1
+            let maeScore = 1.0 / (1.0 + float mae) // Lower MAE = higher score
+            let mapeScore = 1.0 / (1.0 + mape / 100.0) // Lower MAPE = higher score
+
+            // Weighted combination (R² has highest weight)
+            r2Score * 0.5 + maeScore * 0.25 + mapeScore * 0.25)
+
+        // Normalize weights so they sum to 1
+        let totalScore = scores |> List.sum
+
+        if totalScore = 0.0 then
+          goodModels |> List.map (fun _ -> 1.0 / float goodModels.Length)
+        else
+          scores |> List.map (fun score -> score / totalScore)
 
   /// <summary>
   /// Trains an ensemble model using all available algorithms.
@@ -521,13 +626,20 @@ module MachineLearning =
         algorithms
         |> List.choose (fun alg ->
           try
-            let model = trainModel mlContext trainingRecords alg config
+            // Skip OnlineGradientDescent as it tends to have numerical issues
+            if alg = OnlineGradientDescentRegression then
+              printfn
+                $"Warning: Skipping {alg} due to known numerical stability issues"
 
-            match validateModel model with
-            | Ok validModel -> Some (alg, validModel)
-            | Error err ->
-              printfn $"Warning: Failed to train {alg}: {err}"
               None
+            else
+              let model = trainModel mlContext trainingRecords alg config
+
+              match validateModel model with
+              | Ok validModel -> Some (alg, validModel)
+              | Error err ->
+                printfn $"Warning: Failed to train {alg}: {err}"
+                None
           with ex ->
             printfn $"Warning: Exception training {alg}: {ex.Message}"
             None)
@@ -539,12 +651,33 @@ module MachineLearning =
       else
         let models = modelsAndAlgorithms |> List.map snd
 
-        // Calculate weights based on cross-validation performance
+        // Calculate weights based on improved performance evaluation
         let weights = calculateEnsembleWeights mlContext trainingRecords models
 
+        // Filter models based on weights (exclude models with zero weight)
+        let validModelsAndWeights =
+          List.zip models weights
+          |> List.filter (fun (_, weight) -> weight > 0.0)
+
+        let filteredModels = validModelsAndWeights |> List.map fst
+        let filteredWeights = validModelsAndWeights |> List.map snd
+
+        // Renormalize weights
+        let totalWeight = List.sum filteredWeights
+
+        let normalizedWeights =
+          if totalWeight > 0.0 then
+            filteredWeights |> List.map (fun w -> w / totalWeight)
+          else
+            filteredModels
+            |> List.map (fun _ -> 1.0 / float filteredModels.Length)
+
+        logInfo
+          $"Ensemble created with {filteredModels.Length} models out of {models.Length} total"
+
         Ok
-          { Models = models
-            Weights = weights
+          { Models = filteredModels
+            Weights = normalizedWeights
             MLContext = mlContext }
     with ex ->
       Error (ModelTrainingFailed $"Ensemble training failed: {ex.Message}")
@@ -629,7 +762,12 @@ module MachineLearning =
     try
       let testInput =
         { MA3 = 1.0f
-          MA9 = 1.0f }
+          MA9 = 1.0f
+          MA20 = 1.0f
+          RSI = 50.0f
+          ATR = 1.0f
+          Volatility = 0.01f
+          ChangePercent = 0.0f }
 
       predictWithEnsemble ensemble testInput |> ignore
 
