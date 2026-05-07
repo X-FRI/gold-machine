@@ -1,5 +1,8 @@
-*.html
 bin/
 obj/
-
-docs/
+.venv/
+data/
+.ipynb_checkpoints/
+*.user
+*.suo
+*.DotSettings
